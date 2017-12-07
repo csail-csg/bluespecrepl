@@ -15,3 +15,4 @@ bsc -no-opt-ATS -keep-fires -aggressive-conditions -sim -bdir $BUILD_DIR -simdir
 # instrument the verilog to provide access to WILL_FIRE overrides
 $SCRIPT_DIR/insert_manual_scheduling_overrides.py $BUILD_DIR/$BSV_MODULE_NAME.v
 
+verilator --cc build/mkSimpleIntegration_sched_override.v

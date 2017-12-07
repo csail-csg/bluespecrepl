@@ -37,8 +37,10 @@ def add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_sou
     # generate new declarations for FORCE_WILL_FIRE_* and BLOCK_WILL_FIRE_*
     new_declarations = []
     for name in scheduling_signals:
-        new_declarations.append('reg FORCE_WILL_FIRE_%s = 0 /* verilator public */;' % name)
-        new_declarations.append('reg BLOCK_WILL_FIRE_%s = 0 /* verilator public */;' % name)
+        new_declarations.append('reg FORCE_WILL_FIRE_%s /* verilator public */;' % name)
+        new_declarations.append('reg BLOCK_WILL_FIRE_%s /* verilator public */;' % name)
+        new_declarations.append('initial FORCE_WILL_FIRE_%s = 0;' % name)
+        new_declarations.append('initial BLOCK_WILL_FIRE_%s = 0;' % name)
 
     # insert new declarations with other declarations
     declaration_start = '// rule scheduling signals'
@@ -58,6 +60,46 @@ def add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_sou
                             flags = re.DOTALL)
     return verilog_source
 
+def generate_c_wrapper(module_name, scheduling_signals):
+    c_wrapper = ''
+    c_wrapper += '#include <cstddef>\n'
+    c_wrapper += '#include "verilated.h"\n'
+    c_wrapper += '#include "V%s.h"\n' % module_name
+    c_wrapper += '#include "V%s_%s.h"\n' % (module_name, module_name)
+    c_wrapper += '\n'
+    c_wrapper += 'V%s* top = std::nullptr;\n\n' % module_name
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int construct() {\n'
+    c_wrapper += '    Verilated::commandArgs(0, NULL);\n'
+    c_wrapper += '    if (top != std::nullptr) {\n'
+    c_wrapper += '        delete top;\n'
+    c_wrapper += '    }\n'
+    c_wrapper += '    top = new V%s();\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int destruct() {\n'
+    c_wrapper += '    if (top != std::nullptr) {\n'
+    c_wrapper += '        delete top;\n'
+    c_wrapper += '        top = std::nullptr;\n'
+    c_wrapper += '    }\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += '\n'
+    for name in scheduling_signals:
+        signals = ['CAN_FIRE_' + name, 'FORCE_WILL_FIRE_' + name, 'BLOCK_WILL_FIRE_' + name]
+        for signal in signals:
+            c_wrapper += 'extern "C"\n'
+            c_wrapper += 'int get_%s() {\n' % signal
+            c_wrapper += '    return top->%s->%s;\n' % (module_name, signal)
+            c_wrapper += '}\n'
+            if not signal.startswith('CAN_FIRE'):
+                c_wrapper += 'extern "C"\n'
+                c_wrapper += 'int set_%s(int x) {\n' % signal
+                c_wrapper += '    top->%s->%s = x;\n' % (module_name, signal)
+                c_wrapper += '    return 0;\n'
+                c_wrapper += '}\n'
+    return c_wrapper
+
 def expose_scheduling_wires(verilog_filename):
     if verilog_filename[-2:] != '.v':
         print('ERROR: this function expects the verilog file to end with the extension .v')
@@ -76,11 +118,20 @@ def expose_scheduling_wires(verilog_filename):
     scheduling_signals = filter_scheduling_signals(scheduling_signals)
     # add the internal scheduling overrides
     modified_verilog_source = add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_source)
-
+    # now generate the c file
+    module_name_match = re.search(r'module ([$\w_]*)', modified_verilog_source)
+    if not module_name_match:
+        print('ERROR: Cannot find module name from searching modified verilog')
+        return
+    module_name = module_name_match.group(1)
+    c_wrapper = generate_c_wrapper(module_name, scheduling_signals)
+    # output to files
     with open(verilog_filename[:-2] + '_sched_override.v', 'w') as f:
         f.write(modified_verilog_source)
     with open(verilog_filename[:-2] + '_rules.txt', 'w') as f:
         f.write('\n'.join(scheduling_signals.keys()))
+    with open(verilog_filename[:-2] + '_wrapper.cpp', 'w') as f:
+        f.write(c_wrapper)
 
 def main():
     if len(sys.argv) == 1:
