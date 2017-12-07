@@ -304,8 +304,9 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     signal_types = ['FORCE_FIRE', 'BLOCK_FIRE']
     for signal_type in signal_types:
         c_wrapper += 'extern "C"\n'
-        c_wrapper += 'int set_%s( int rule_num ) {\n' % signal_type
-        c_wrapper += '    top->%s |= (1 << rule_num);\n' % signal_type
+        c_wrapper += 'int set_%s( int rule_num, int val  ) {\n' % signal_type
+        c_wrapper += '    if (val == 0) { top->%s &= ~(1 << rule_num);}\n' % signal_type
+        c_wrapper += '    else { top->%s |= (1 << rule_num);}\n' % signal_type
         c_wrapper += '    return 0;\n'
         c_wrapper += '}\n'
     c_wrapper += '\n'
