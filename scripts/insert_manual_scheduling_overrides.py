@@ -80,7 +80,7 @@ def add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_sou
                             flags = re.DOTALL)
     return verilog_source
 
-def generate_c_wrapper(module_name, scheduling_signals):
+def generate_c_wrapper(module_name, scheduling_signals_in_order):
     c_wrapper = ''
     c_wrapper += '#include <cstddef>\n'
     c_wrapper += '#include "verilated.h"\n'
@@ -97,6 +97,16 @@ def generate_c_wrapper(module_name, scheduling_signals):
     c_wrapper += '    top = new V%s();\n' % module_name
     c_wrapper += '}\n'
     c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int set_CLK(int x) {\n'
+    c_wrapper += '    top->CLK = x;\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int eval() {\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
     c_wrapper += 'int destruct() {\n'
     c_wrapper += '    if (top != nullptr) {\n'
     c_wrapper += '        delete top;\n'
@@ -105,7 +115,33 @@ def generate_c_wrapper(module_name, scheduling_signals):
     c_wrapper += '    return 0;\n'
     c_wrapper += '}\n'
     c_wrapper += '\n'
-    for name in scheduling_signals:
+
+    signal_types = ['CAN_FIRE', 'WILL_FIRE', 'FORCE_WILL_FIRE', 'BLOCK_WILL_FIRE']
+    for signal_type in signal_types:
+        c_wrapper += 'extern "C"\n'
+        c_wrapper += 'int get_%s( int rule_num ) {\n' % signal_type
+        c_wrapper += '    switch (rule_num) {\n'
+        for i in range(len(scheduling_signals_in_order)):
+            c_wrapper += '        case %d: return top->%s->%s_%s;\n' % (i, module_name, signal_type, scheduling_signals_in_order[i])
+        c_wrapper += '    }\n'
+        c_wrapper += '    return -1;\n'
+        c_wrapper += '}\n'
+    c_wrapper += '\n'
+
+    signal_types = ['FORCE_WILL_FIRE', 'BLOCK_WILL_FIRE']
+    for signal_type in signal_types:
+        c_wrapper += 'extern "C"\n'
+        c_wrapper += 'int set_%s( int rule_num, int value ) {\n' % signal_type
+        c_wrapper += '    switch (rule_num) {\n'
+        for i in range(len(scheduling_signals_in_order)):
+            c_wrapper += '        case %d: top->%s->%s_%s = value; break;\n' % (i, module_name, signal_type, scheduling_signals_in_order[i])
+        c_wrapper += '        default: return -1;\n'
+        c_wrapper += '    }\n'
+        c_wrapper += '    return 0;\n'
+        c_wrapper += '}\n'
+    c_wrapper += '\n'
+
+    for name in scheduling_signals_in_order:
         signals = ['CAN_FIRE_' + name, 'FORCE_WILL_FIRE_' + name, 'BLOCK_WILL_FIRE_' + name]
         for signal in signals:
             c_wrapper += 'extern "C"\n'
@@ -155,7 +191,7 @@ def expose_scheduling_wires(verilog_filename):
         print('ERROR: Cannot find module name from searching modified verilog')
         return
     module_name = module_name_match.group(1)
-    c_wrapper = generate_c_wrapper(module_name, scheduling_signals)
+    c_wrapper = generate_c_wrapper(module_name, scheduling_signals_in_order)
     py_wrapper = generate_py_wrapper(scheduling_signals_in_order)
 
     # output to files
