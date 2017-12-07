@@ -80,6 +80,72 @@ def add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_sou
                             flags = re.DOTALL)
     return verilog_source
 
+def add_external_scheduling_overrides_to_verilog(rules, verilog_source):
+    new_outputs = ['CAN_FIRE', 'WILL_FIRE']
+    new_inputs = ['BLOCK_FIRE', 'FORCE_FIRE']
+    new_ports = new_outputs + new_inputs
+    new_port_width = len(rules)
+
+    # generate new declarations for FORCE_WILL_FIRE_* and BLOCK_WILL_FIRE_* and update declarations for CAN_FIRE_*
+    module_declaration_match = re.search(r'(module .*?\(.*?)(\);)', verilog_source, re.DOTALL)
+    before = verilog_source[0:module_declaration_match.start()] + module_declaration_match.group(1)
+    after = module_declaration_match.group(2) + verilog_source[module_declaration_match.end():]
+    # add new ports to the end of the list of ports
+    verilog_source = before + ',' + (','.join(new_ports)) + after
+    # add definitions of the new ports
+    port_declaration_matches = list(re.finditer(r'(input|output) .*?;', verilog_source, re.DOTALL))
+    before = verilog_source[0:port_declaration_matches[-1].end()]
+    after = verilog_source[port_declaration_matches[-1].end():]
+    new_port_declarations = ''
+    for new_output in new_outputs:
+        new_port_declarations += '\n  output [%d:0] %s;' % (new_port_width - 1, new_output)
+    for new_input in new_inputs:
+        new_port_declarations += '\n  input [%d:0] %s;' % (new_port_width - 1, new_input)
+    verilog_source = before + new_port_declarations + after
+
+    # declare new internal signals
+    new_declarations = []
+    for new_input in new_inputs:
+        for rule_name in rules:
+            new_declarations.append('wire %s_%s;' % (new_input, rule_name))
+    for new_output in new_outputs:
+        new_declarations.append('wire [%d:0] %s;' % (new_port_width - 1, (new_output)))
+
+    # add it before the other scheduling signal declarations
+    match = re.search(r'wire (CAN|WILL)_FIRE', verilog_source)
+    if match is None:
+        print(verilog_source)
+        print('ERROR: Unable to find "wire (CAN|WILL)_FIRE"')
+    before = verilog_source[0:match.start()]
+    after = verilog_source[match.start():]
+    verilog_source = before + '\n  '.join(new_declarations) + '\n  ' + after
+
+    # connect to their internal sigals
+    new_assignments = []
+    for new_input in new_inputs:
+        i = 0
+        for rule_name in rules:
+            new_assignments.append('assign %s_%s = %s[%d];' % (new_input, rule_name, new_input, i))
+            i += 1
+    for new_output in new_outputs:
+        signals_to_concat = list(map(lambda x: new_output + '_' + x, rules))
+        signals_to_concat.reverse()
+        new_assignments.append('assign %s = {%s};' % (new_output, ', '.join(signals_to_concat)))
+
+    # add it before the other scheduling signal assignments
+    match = re.search(r'assign (CAN|WILL)_FIRE', verilog_source)
+    before = verilog_source[0:match.start()]
+    after = verilog_source[match.start():]
+    verilog_source = before + '\n  '.join(new_assignments) + '\n  ' + after
+
+    # update WILL_FIRE_* definitions to include FORCE_FIRE_* and BLOCK_FIRE_*
+    for rule_name in rules:
+        verilog_source = re.sub(r'assign WILL_FIRE_%s =(.*?);' % rule_name,
+                                r'assign WILL_FIRE_%s = FORCE_FIRE_%s | ((~BLOCK_FIRE_%s) & (\1));' % (rule_name, rule_name, rule_name),
+                                verilog_source,
+                                flags = re.DOTALL)
+    return verilog_source
+
 def generate_c_wrapper(module_name, scheduling_signals_in_order):
     c_wrapper = ''
     c_wrapper += '#include <cstddef>\n'
@@ -173,6 +239,79 @@ def generate_c_wrapper(module_name, scheduling_signals_in_order):
                 c_wrapper += '}\n'
     return c_wrapper
 
+def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
+    c_wrapper = ''
+    c_wrapper += '#include <cstddef>\n'
+    c_wrapper += '#include "verilated.h"\n'
+    c_wrapper += '#include "V%s.h"\n' % module_name
+    c_wrapper += '\n'
+    c_wrapper += 'V%s* top = nullptr;\n' % module_name
+    c_wrapper += '\n'
+    c_wrapper += 'const char* rules[] = {"' + ('","'.join(scheduling_signals_in_order)) + '"};\n'
+    c_wrapper += 'const int num_rules = ' + str(len(scheduling_signals_in_order)) + ';\n'
+    c_wrapper += '\n'
+    c_wrapper += 'int get_num_rules() {\n    return num_rules;\n}\n'
+    c_wrapper += 'const char** get_rules() {\n    return rules;\n}\n'
+    c_wrapper += '\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int construct() {\n'
+    c_wrapper += '    Verilated::commandArgs(0, (const char**) nullptr);\n'
+    c_wrapper += '    if (top != nullptr) {\n'
+    c_wrapper += '        delete top;\n'
+    c_wrapper += '    }\n'
+    c_wrapper += '    top = new V%s();\n' % module_name
+    c_wrapper += '    top->FORCE_FIRE = 0;\n'
+    c_wrapper += '    top->BLOCK_FIRE = 0;\n'
+    c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    top->RST_N = 0; top->CLK = 1;\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    top->RST_N = 0; top->CLK = 1;\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    top->RST_N = 1; top->CLK = 0;\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int set_CLK(int x) {\n'
+    c_wrapper += '    top->CLK = x;\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int eval() {\n'
+    c_wrapper += '    top->eval();\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'int destruct() {\n'
+    c_wrapper += '    if (top != nullptr) {\n'
+    c_wrapper += '        delete top;\n'
+    c_wrapper += '        top = nullptr;\n'
+    c_wrapper += '    }\n'
+    c_wrapper += '    return 0;\n'
+    c_wrapper += '}\n'
+    c_wrapper += '\n'
+
+    signal_types = ['CAN_FIRE', 'WILL_FIRE', 'FORCE_FIRE', 'BLOCK_FIRE']
+    for signal_type in signal_types:
+        c_wrapper += 'extern "C"\n'
+        c_wrapper += 'int get_%s( int rule_num ) {\n' % signal_type
+        c_wrapper += '    return 1 & (top->%s >> rule_num);\n' % signal_type
+        c_wrapper += '}\n'
+    c_wrapper += '\n'
+
+    signal_types = ['FORCE_FIRE', 'BLOCK_FIRE']
+    for signal_type in signal_types:
+        c_wrapper += 'extern "C"\n'
+        c_wrapper += 'int set_%s( int rule_num ) {\n' % signal_type
+        c_wrapper += '    top->%s |= (1 << rule_num);\n' % signal_type
+        c_wrapper += '    return 0;\n'
+        c_wrapper += '}\n'
+    c_wrapper += '\n'
+
+    return c_wrapper
+
 def generate_py_wrapper(scheduling_signals_in_order):
     py_wrapper = ''
     py_wrapper += "rules = ['"
@@ -200,15 +339,15 @@ def expose_scheduling_wires(verilog_filename):
     scheduling_order = get_scheduling_order(verilog_source)
     scheduling_signals_in_order = list(filter(lambda x: x in scheduling_signals, scheduling_order))
 
-    # add the internal scheduling overrides
-    modified_verilog_source = add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_source)
+    # add the external scheduling overrides
+    modified_verilog_source = add_external_scheduling_overrides_to_verilog(scheduling_signals_in_order, verilog_source)
     # now generate the c file
     module_name_match = re.search(r'module ([$\w_]*)', modified_verilog_source)
     if not module_name_match:
         print('ERROR: Cannot find module name from searching modified verilog')
         return
     module_name = module_name_match.group(1)
-    c_wrapper = generate_c_wrapper(module_name, scheduling_signals_in_order)
+    c_wrapper = generate_simple_c_wrapper(module_name, scheduling_signals_in_order)
     py_wrapper = generate_py_wrapper(scheduling_signals_in_order)
 
     # output to files
