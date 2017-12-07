@@ -25,13 +25,13 @@ void* set_x(int signal){
 extern "C"
 int step(){
       if (top->clock)
-      cout << "y is " << top->our->y << endl;
+      std::cout << "y is " << top->our->y << std::endl;
       top->clock ^= 1;
       top->eval();
 }
 
 extern "C"
 void* finish_verilator(){
-    cout << "Destruct verilator object" << endl;
+    std::cout << "Destruct verilator object" << std::endl;
     delete top;
 }
