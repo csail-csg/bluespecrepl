@@ -33,6 +33,11 @@ def filter_scheduling_signals(scheduling_signals):
             keep_scheduling_signals[name] = scheduling_signals[name]
     return keep_scheduling_signals
 
+def get_scheduling_order(verilog_source):
+    # the 'assign CAN_FIRE_[$\w]*' appear in the output verilog file in scheduling order
+    can_fire_assignments = re.findall('assign CAN_FIRE_([$\w]*)', verilog_source)
+    return can_fire_assignments
+
 def add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_source):
     # generate new declarations for FORCE_WILL_FIRE_* and BLOCK_WILL_FIRE_* and update declarations for CAN_FIRE_*
     new_declarations = []
@@ -115,6 +120,13 @@ def generate_c_wrapper(module_name, scheduling_signals):
                 c_wrapper += '}\n'
     return c_wrapper
 
+def generate_py_wrapper(scheduling_signals_in_order):
+    py_wrapper = ''
+    py_wrapper += "rules = ['"
+    py_wrapper += ("','".join(scheduling_signals_in_order))
+    py_wrapper += "']\n"
+    return py_wrapper
+
 def expose_scheduling_wires(verilog_filename):
     if verilog_filename[-2:] != '.v':
         print('ERROR: this function expects the verilog file to end with the extension .v')
@@ -122,7 +134,7 @@ def expose_scheduling_wires(verilog_filename):
     verilog_source = ''
     with open(verilog_filename, 'r') as f:
         verilog_source = f.read()
-    # first fix the usage of CAN_FIRE versus WILL_FIRE
+    # make sure CAN_FIRE isn't used in a context where it shouldn't be
     if has_bad_can_fires(verilog_source):
         print('ERROR: The verilog file %s uses CAN_FIRE in an unexpected context.' % verilog_filename)
         print('    This is probably a result of common sub-expression elimination in the compiler.')
@@ -131,6 +143,10 @@ def expose_scheduling_wires(verilog_filename):
     scheduling_signals = get_scheduling_signals(verilog_source)
     # only keep the scheduling signals that start with RL_
     scheduling_signals = filter_scheduling_signals(scheduling_signals)
+    # get the scheduling order
+    scheduling_order = get_scheduling_order(verilog_source)
+    scheduling_signals_in_order = list(filter(lambda x: x in scheduling_signals, scheduling_order))
+
     # add the internal scheduling overrides
     modified_verilog_source = add_internal_scheduling_overrides_to_verilog(scheduling_signals, verilog_source)
     # now generate the c file
@@ -140,13 +156,17 @@ def expose_scheduling_wires(verilog_filename):
         return
     module_name = module_name_match.group(1)
     c_wrapper = generate_c_wrapper(module_name, scheduling_signals)
+    py_wrapper = generate_py_wrapper(scheduling_signals_in_order)
+
     # output to files
     with open(verilog_filename[:-2] + '.v', 'w') as f:
         f.write(modified_verilog_source)
     with open(verilog_filename[:-2] + '_rules.txt', 'w') as f:
-        f.write('\n'.join(scheduling_signals.keys()))
+        f.write('\n'.join(scheduling_signals_in_order))
     with open(verilog_filename[:-2] + '_wrapper.cpp', 'w') as f:
         f.write(c_wrapper)
+    with open(verilog_filename[:-2] + '.py', 'w') as f:
+        f.write(py_wrapper)
 
 def main():
     if len(sys.argv) == 1:
