@@ -120,12 +120,8 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     c_wrapper += '\n'
     c_wrapper += 'extern "C"\n'
     c_wrapper += 'V%s* construct() {\n' % module_name
-    c_wrapper += '    V%s* top = new V%s();\n' % (module_name, module_name)
     c_wrapper += '    Verilated::commandArgs(0, (const char**) nullptr);\n'
-    c_wrapper += '    if (top != nullptr) {\n'
-    c_wrapper += '        delete top;\n'
-    c_wrapper += '    }\n'
-    c_wrapper += '    top = new V%s();\n' % module_name
+    c_wrapper += '    V%s* top = new V%s();\n' % (module_name, module_name)
     c_wrapper += '    top->FORCE_FIRE = 0;\n'
     c_wrapper += '    top->BLOCK_FIRE = 0;\n'
     c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
