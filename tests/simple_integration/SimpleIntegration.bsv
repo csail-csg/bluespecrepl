@@ -6,27 +6,27 @@ module mkSimpleIntegration(Empty);
     Wire#(Bool) bypass_wire <- mkDWire(False);
 
     rule always_ready_and_enabled;
-        $display("always ready and enabled\n");
+        $display("[BSV] always ready and enabled");
         a <= a + 1;
     endrule
 
     rule same_guard_1(a[0] == 0);
         b <= b + 1;
-        $display("same guard 1\n");
+        $display("[BSV] same guard 1");
     endrule
 
     rule same_guard_2(a[0] == 0);
         c <= c + 1;
-        $display("same guard 2\n");
+        $display("[BSV] same guard 2");
     endrule
 
     rule bypassing_src(a[1] == 0);
         bypass_wire <= True;
-        $display("bypassing src\n");
+        $display("[BSV] bypassing src");
     endrule
 
     rule bypassing_dst(bypass_wire);
-        $display("bypassing dst\n");
+        $display("[BSV] bypassing dst");
         d <= d + 1;
     endrule
 endmodule
