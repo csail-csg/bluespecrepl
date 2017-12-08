@@ -55,13 +55,13 @@ def has_bad_can_fires(verilog_source):
                 return True
             continue
         # context 3
-        match = re.search(r'assign WILL_FIRE_([$\w]*?) =', block, re.DOTALL)
+        match = re.search(r'assign (RDY|WILL_FIRE)_([$\w]*?) =', block, re.DOTALL)
         if match:
             # only CAN_FIRE_x is allowed in this context (where x matches the
             # assigned WILL_FIRE_x)
             can_fires = re.findall(r'CAN_FIRE_([$\w]*)', block[match.end():])
             for x in can_fires:
-                if x != match.group(1):
+                if x != match.group(2):
                     return True
             continue
         # not a special context
