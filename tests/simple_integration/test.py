@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 
 import ctypes
+import sys
+sys.path.append("../../scripts")
+from verilator_wrapper import VerilatorWrapper
 
-lib = ctypes.CDLL('obj_dir/VmkSimpleIntegration')
-
-lib.construct()
+lib = VerilatorWrapper('obj_dir/VmkSimpleIntegration')
 
 num_rules = lib.get_num_rules()
 print('num_rules = ' + str(num_rules))
 
-get_rule_fn = lib.get_rule
-get_rule_fn.restype = ctypes.c_char_p
 print('using get_rule(x):')
 for i in range(num_rules):
-    print('rule[%d] = %s' % (i, get_rule_fn(i).decode('ascii')))
+    print('rule[%d] = %s' % (i, lib.get_rule(i)))
 
 def tick(n):
     for i in range(n):
@@ -89,4 +88,3 @@ print('')
 print('ticking clock...')
 tick(1)
 
-lib.destruct()
