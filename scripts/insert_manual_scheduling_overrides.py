@@ -120,7 +120,7 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     c_wrapper += '\n'
     c_wrapper += 'extern "C"\n'
     c_wrapper += 'V%s* construct() {\n' % module_name
-    c_wrapper += '    V%s* top = new V%s();\n' % module_name
+    c_wrapper += '    V%s* top = new V%s();\n' % (module_name, module_name)
     c_wrapper += '    Verilated::commandArgs(0, (const char**) nullptr);\n'
     c_wrapper += '    if (top != nullptr) {\n'
     c_wrapper += '        delete top;\n'
@@ -163,7 +163,7 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     signal_types = ['CAN_FIRE', 'WILL_FIRE', 'FORCE_FIRE', 'BLOCK_FIRE']
     for signal_type in signal_types:
         c_wrapper += 'extern "C"\n'
-        c_wrapper += 'int get_%s(V%s* top, int rule_num) {\n' % (module_name,signal_type)
+        c_wrapper += 'int get_%s(V%s* top, int rule_num) {\n' % (signal_type, module_name)
         c_wrapper += '    return 1 & (top->%s >> rule_num);\n' % signal_type
         c_wrapper += '}\n'
     c_wrapper += '\n'
@@ -171,7 +171,7 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     signal_types = ['FORCE_FIRE', 'BLOCK_FIRE']
     for signal_type in signal_types:
         c_wrapper += 'extern "C"\n'
-        c_wrapper += 'int set_%s(V%s* top, int rule_num, int val  ) {\n' % (module_name, signal_type)
+        c_wrapper += 'int set_%s(V%s* top, int rule_num, int val  ) {\n' % (signal_type, module_name)
         c_wrapper += '    if (val == 0) { top->%s &= ~(1 << rule_num);}\n' % signal_type
         c_wrapper += '    else { top->%s |= (1 << rule_num);}\n' % signal_type
         c_wrapper += '    return 0;\n'
