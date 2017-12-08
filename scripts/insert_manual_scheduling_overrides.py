@@ -113,8 +113,10 @@ def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
     c_wrapper += 'const char* rules[] = {"' + ('","'.join(scheduling_signals_in_order)) + '"};\n'
     c_wrapper += 'const int num_rules = ' + str(len(scheduling_signals_in_order)) + ';\n'
     c_wrapper += '\n'
+    c_wrapper += 'extern "C"\n'
     c_wrapper += 'int get_num_rules() {\n    return num_rules;\n}\n'
-    c_wrapper += 'const char** get_rules() {\n    return rules;\n}\n'
+    c_wrapper += 'extern "C"\n'
+    c_wrapper += 'const char* get_rule(int x) {\n    if ((x >= 0) && (x < num_rules)) return rules[x];\n    else return "";\n}\n'
     c_wrapper += '\n'
     c_wrapper += 'extern "C"\n'
     c_wrapper += 'V%s* construct() {\n' % module_name
