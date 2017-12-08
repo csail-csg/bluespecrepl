@@ -61,7 +61,18 @@ class BluespecREPL:
             self.setfire([choosen])
             self.step(printRulesFired=printRulesFired)
 
-
+    def run_until_predicate(self, predicate, printRulesFired=False):
+        """ Run until the predicate is true 
+            a.run_until_predicate((lambda x: True if 'rule' in x.list_will_fire() else False))
+        """
+        n = 0
+        self.setfire(self.listrules)
+        while 1:
+            if predicate(self):
+                print("Predicate encountered after %d steps" % n)
+                break
+            self.step(printRulesFired=printRulesFired)
+            n += 1
     
     def step(self,printRulesFired=False):
         self.lib.eval()
