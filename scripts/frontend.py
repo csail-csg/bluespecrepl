@@ -16,10 +16,12 @@ class BluespecREPL:
         get_rule_fn.restype = ctypes.c_char_p
         for i in range(num_rules):
             self.listrules[i] = get_rule_fn(i).decode('ascii')
-        self.lib.construct()
+        construct = self.lib.construct
+        construct.restype = ctypes.c_void_p
+        self.model = construct()
 
     def __del__(self):
-        self.lib.destruct()
+        self.lib.destruct(self.model)
         del self.lib
 
     def setfire(self, listToFire):
@@ -30,9 +32,9 @@ class BluespecREPL:
             list_blocked += [index]
         for i in range(len(self.listrules)):
             if i not in list_blocked:
-                self.lib.set_BLOCK_FIRE(i,1)
+                self.lib.set_BLOCK_FIRE(self.model,i,1)
             else:
-                self.lib.set_BLOCK_FIRE(i,0)
+                self.lib.set_BLOCK_FIRE(self.model,i,0)
   
     def run_bsc(self,n, printRulesFired=False):
         """ Do n step of the code, with the scheduler created by Bluespec. """
@@ -44,7 +46,7 @@ class BluespecREPL:
         """ list the rules with can_fire = 1 """
         list_can = []
         for i in range(len(self.listrules)):
-            if self.lib.get_CAN_FIRE(i)==1:
+            if self.lib.get_CAN_FIRE(self.model,i)==1:
                 list_can += [self.listrules[i]]            
         return list_can
  
@@ -52,7 +54,7 @@ class BluespecREPL:
         """ list the rules that will fire """
         list_can = []
         for i in range(len(self.listrules)):
-            if self.lib.get_WILL_FIRE(i)==1:
+            if self.lib.get_WILL_FIRE(self.model,i)==1:
                 list_can += [self.listrules[i]]            
         return list_can
                     
@@ -79,22 +81,22 @@ class BluespecREPL:
             n += 1
     
     def step(self,printRulesFired=False):
-        self.lib.eval()
+        self.lib.eval(self.model)
         if (printRulesFired):
                 print(self.list_will_fire())
         self.lib.set_CLK(1)
-        self.lib.eval()
+        self.lib.eval(self.model)
         self.lib.set_CLK(0)
-        self.lib.eval()
+        self.lib.eval(self.model)
 
     #A couple of low level wrappers, maybe we should get rid of them?
     def propagate(self):
         """ This function lift the combinational propagation without toggling the clocks"""
-        self.lib.eval()
+        self.lib.eval(self.model)
     
     def set_clk(self,val):
-        self.lib.set_CLK(val)
+        self.lib.set_CLK(self.model,val)
 
     def get_clk(self):
-        return self.lib.get_CLK()
+        return self.lib.get_CLK(self.model)
      
