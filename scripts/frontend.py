@@ -84,9 +84,9 @@ class BluespecREPL:
         self.lib.eval(self.model)
         if (printRulesFired):
                 print(self.list_will_fire())
-        self.lib.set_CLK(1)
+        self.lib.set_CLK(self.model,1)
         self.lib.eval(self.model)
-        self.lib.set_CLK(0)
+        self.lib.set_CLK(self.model,0)
         self.lib.eval(self.model)
 
     #A couple of low level wrappers, maybe we should get rid of them?
