@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import sys
+import os
 import re
 from has_bad_can_fires import *
+import jinja2
 
 def get_scheduling_signals(verilog_source):
     # scheduling_signal_definition_regex = re.compile(r'wire {WILL,CAN}_FIRE[ ,\w]*;')
@@ -104,89 +106,6 @@ def add_external_scheduling_overrides_to_verilog(rules, verilog_source):
                                 flags = re.DOTALL)
     return verilog_source
 
-def generate_simple_c_wrapper(module_name, scheduling_signals_in_order):
-    c_wrapper = ''
-    c_wrapper += '#include <cstddef>\n'
-    c_wrapper += '#include "verilated.h"\n'
-    c_wrapper += '#include "V%s.h"\n' % module_name
-    c_wrapper += '\n'
-    c_wrapper += 'const char* rules[] = {"' + ('","'.join(scheduling_signals_in_order)) + '"};\n'
-    c_wrapper += 'const int num_rules = ' + str(len(scheduling_signals_in_order)) + ';\n'
-    c_wrapper += '\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'int get_num_rules() {\n    return num_rules;\n}\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'const char* get_rule(int x) {\n    if ((x >= 0) && (x < num_rules)) return rules[x];\n    else return "";\n}\n'
-    c_wrapper += '\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'V%s* construct() {\n' % module_name
-    c_wrapper += '    Verilated::commandArgs(0, (const char**) nullptr);\n'
-    c_wrapper += '    V%s* top = new V%s();\n' % (module_name, module_name)
-    c_wrapper += '    top->FORCE_FIRE = 0;\n'
-    c_wrapper += '    top->BLOCK_FIRE = 0;\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 1;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 1;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 0;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 0; top->CLK = 1;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    top->RST_N = 1; top->CLK = 1;\n'
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    return top;\n'
-    c_wrapper += '}\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'int set_CLK(V%s* top, int x) {\n' % module_name
-    c_wrapper += '    top->CLK = x;\n'
-    c_wrapper += '    return 0;\n'
-    c_wrapper += '}\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'int eval(V%s* top) {\n' % module_name
-    c_wrapper += '    top->eval();\n'
-    c_wrapper += '    return 0;\n'
-    c_wrapper += '}\n'
-    c_wrapper += 'extern "C"\n'
-    c_wrapper += 'int destruct(V%s* top) {\n' % module_name
-    c_wrapper += '    if (top != nullptr) {\n'
-    c_wrapper += '        delete top;\n'
-    c_wrapper += '        top = nullptr;\n'
-    c_wrapper += '    }\n'
-    c_wrapper += '    return 0;\n'
-    c_wrapper += '}\n'
-    c_wrapper += '\n'
-
-    signal_types = ['CAN_FIRE', 'WILL_FIRE', 'FORCE_FIRE', 'BLOCK_FIRE']
-    for signal_type in signal_types:
-        c_wrapper += 'extern "C"\n'
-        c_wrapper += 'int get_%s(V%s* top, int rule_num) {\n' % (signal_type, module_name)
-        c_wrapper += '    return 1 & (top->%s >> rule_num);\n' % signal_type
-        c_wrapper += '}\n'
-    c_wrapper += '\n'
-
-    signal_types = ['FORCE_FIRE', 'BLOCK_FIRE']
-    for signal_type in signal_types:
-        c_wrapper += 'extern "C"\n'
-        c_wrapper += 'int set_%s(V%s* top, int rule_num, int val  ) {\n' % (signal_type, module_name)
-        c_wrapper += '    if (val == 0) { top->%s &= ~(1 << rule_num);}\n' % signal_type
-        c_wrapper += '    else { top->%s |= (1 << rule_num);}\n' % signal_type
-        c_wrapper += '    return 0;\n'
-        c_wrapper += '}\n'
-    c_wrapper += '\n'
-
-    return c_wrapper
-
-def generate_py_wrapper(scheduling_signals_in_order):
-    py_wrapper = ''
-    py_wrapper += "rules = ['"
-    py_wrapper += ("','".join(scheduling_signals_in_order))
-    py_wrapper += "']\n"
-    return py_wrapper
-
 def expose_scheduling_wires(verilog_filename):
     if verilog_filename[-2:] != '.v':
         print('ERROR: this function expects the verilog file to end with the extension .v')
@@ -215,8 +134,17 @@ def expose_scheduling_wires(verilog_filename):
         print('ERROR: Cannot find module name from searching modified verilog')
         return
     module_name = module_name_match.group(1)
-    c_wrapper = generate_simple_c_wrapper(module_name, scheduling_signals_in_order)
-    py_wrapper = generate_py_wrapper(scheduling_signals_in_order)
+
+    template_path = os.path.dirname(os.path.realpath(__file__)) + '/templates/'
+    #template_path = os.path.dirname(sys.argv[0]) + '/templates/'
+    env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_path))
+    template = env.get_template('verilator_cpp_wrapper.cpp')
+    c_wrapper = template.render({
+        'filename' : module_name,
+        'rules' : scheduling_signals_in_order,
+        'readable_signals' : ['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'],
+        'writable_signals' : ['BLOCK_FIRE', 'FORCE_FIRE']
+        })
 
     # output to files
     with open(verilog_filename[:-2] + '.v', 'w') as f:
@@ -225,8 +153,6 @@ def expose_scheduling_wires(verilog_filename):
         f.write('\n'.join(scheduling_signals_in_order))
     with open(verilog_filename[:-2] + '_wrapper.cpp', 'w') as f:
         f.write(c_wrapper)
-    with open(verilog_filename[:-2] + '.py', 'w') as f:
-        f.write(py_wrapper)
 
 def main():
     if len(sys.argv) == 1:
