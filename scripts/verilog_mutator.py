@@ -155,117 +155,7 @@ class VerilogMutator:
         # instance name, module name
         return [(instance.name, instance.module) for instance in instances]
 
-    def expose_internal_scheduling_signals(self, rule_names = None):
-        if rule_names is None:
-            rule_names = self.get_rules_in_scheduling_order()
-        # new ports
-        self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
-
-        # new declarations
-        # declare new ports as inputs or outputs
-        self.add_decls(['CAN_FIRE', 'WILL_FIRE'], ast.Output, width = len(rule_names))
-        self.add_decls(['FORCE_FIRE', 'BLOCK_FIRE'], ast.Input, width = len(rule_names))
-
-        # declare individual BLOCK_FIRE_RL_* and FORCE_FIRE_RL_* signals for each rule
-        for name in rule_names:
-            self.add_decls('BLOCK_FIRE_RL_' + name, ast.Wire)
-            self.add_decls('FORCE_FIRE_RL_' + name, ast.Wire)
-
-        # new assigns
-        # assign CAN_FIRE and WILL_FIRE as the concatenation of individually named signals
-        can_fires = []
-        will_fires = []
-        for name in rule_names:
-            can_fires.append(ast.Identifier('CAN_FIRE_RL_' + name))
-            will_fires.append(ast.Identifier('WILL_FIRE_RL_' + name))
-        # reverse arrays of signals to get first signal in bit 0 of the concatenation
-        can_fires.reverse()
-        will_fires.reverse()
-        self.add_assign('CAN_FIRE', ast.Concat(can_fires))
-        self.add_assign('WILL_FIRE', ast.Concat(will_fires))
-
-        # split BLOCK_FIRE and FORCE_FIRE into individually named signals
-        for i in range(len(rule_names)):
-            name = rule_names[i]
-            self.add_assign('BLOCK_FIRE_RL_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(i), ast.IntConst(i)))
-            self.add_assign('FORCE_FIRE_RL_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(i), ast.IntConst(i)))
-
-        # updating old assignments of WILL_FIRE_RL_*
-        for rule in rule_names:
-            assign = self.get_assign('WILL_FIRE_RL_' + rule)
-            new_rhs = ast.Or(ast.Identifier('FORCE_FIRE_RL_' + rule), ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_RL_' + rule)), assign.right.var))
-            assign.right.var = new_rhs
-
-    def expose_internal_scheduling_signals_hierarchically(self, num_rules_per_module, rule_names = None):
-        if rule_names is None:
-            rule_names = self.get_rules_in_scheduling_order()
-        # new ports
-        self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
-
-        # collect all the CAN_FIRE and WILL_FIRE signals for future concatenation
-        can_fires = []
-        will_fires = []
-        for name in rule_names:
-            can_fires.append(ast.Identifier('CAN_FIRE_RL_' + name))
-            will_fires.append(ast.Identifier('WILL_FIRE_RL_' + name))
-
-        # instrument submodules
-        top_signal_width = len(rule_names)
-        instances = self.get_nodes_by_type(ast.Instance)
-        for instance in instances:
-            if instance.module in num_rules_per_module:
-                if num_rules_per_module[instance.module] != 0:
-                    num_submodule_rules = num_rules_per_module[instance.module]
-                    # add ports to submodule
-                    lsb = top_signal_width
-                    msb = top_signal_width + num_submodule_rules - 1
-                    top_signal_width += num_submodule_rules
-                    new_ports = []
-                    for name in ['CAN_FIRE', 'WILL_FIRE']:
-                        # outputs
-                        self.add_decls(name + '_MODULE_' + instance.name, ast.Wire, width = num_submodule_rules)
-                        new_ports.append(ast.PortArg(name, ast.Identifier(name + '_MODULE_' + instance.name)))
-                    for name in ['BLOCK_FIRE', 'FORCE_FIRE']:
-                        # inputs
-                        self.add_decls(name + '_MODULE_' + instance.name, ast.Wire, width = num_submodule_rules)
-                        self.add_assign(name + '_MODULE_' + instance.name, ast.Partselect(ast.Identifier(name), ast.IntConst(msb), ast.IntConst(lsb)))
-                        new_ports.append(ast.PortArg(name, ast.Identifier(name + '_MODULE_' + instance.name)))
-                    instance.portlist = instance.portlist + tuple(new_ports)
-                    # keep track of the modules CAN_FIRE and WILL_FIRE signals for future concatenation
-                    can_fires.append(ast.Identifier('CAN_FIRE_MODULE_' + instance.name))
-                    will_fires.append(ast.Identifier('WILL_FIRE_MODULE_' + instance.name))
-
-        # new declarations
-        # declare new ports as inputs or outputs
-        self.add_decls(['CAN_FIRE', 'WILL_FIRE'], ast.Output, width = top_signal_width)
-        self.add_decls(['FORCE_FIRE', 'BLOCK_FIRE'], ast.Input, width = top_signal_width)
-
-        # declare individual BLOCK_FIRE_RL_* and FORCE_FIRE_RL_* signals for each rule
-        for name in rule_names:
-            self.add_decls('BLOCK_FIRE_RL_' + name, ast.Wire)
-            self.add_decls('FORCE_FIRE_RL_' + name, ast.Wire)
-
-        # new assigns
-        # assign CAN_FIRE and WILL_FIRE as the concatenation of individually named signals
-        # reverse arrays of signals to get first signal in bit 0 of the concatenation
-        can_fires.reverse()
-        will_fires.reverse()
-        self.add_assign('CAN_FIRE', ast.Concat(can_fires))
-        self.add_assign('WILL_FIRE', ast.Concat(will_fires))
-
-        # split BLOCK_FIRE and FORCE_FIRE into individually named signals
-        for i in range(len(rule_names)):
-            name = rule_names[i]
-            self.add_assign('BLOCK_FIRE_RL_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(i), ast.IntConst(i)))
-            self.add_assign('FORCE_FIRE_RL_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(i), ast.IntConst(i)))
-
-        # updating old assignments of WILL_FIRE_RL_*
-        for rule in rule_names:
-            assign = self.get_assign('WILL_FIRE_RL_' + rule)
-            new_rhs = ast.Or(ast.Identifier('FORCE_FIRE_RL_' + rule), ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_RL_' + rule)), assign.right.var))
-            assign.right.var = new_rhs
-
-    def expose_internal_scheduling_signals_hierarchically_alt(self, num_rules_per_module, scheduling_order = None):
+    def expose_internal_scheduling_signals(self, num_rules_per_module = None, scheduling_order = None):
         # if schedule isn't provided, assume rules first then modules
         if scheduling_order is None:
             scheduling_order = ['RL_' + x for x in self.get_rules_in_scheduling_order()] + ['MODULE_' + x for x, y in self.get_submodules()]
@@ -302,7 +192,7 @@ class VerilogMutator:
                     # declarations of all FIRE signals for the submodule
                     self.add_decls(signal_type + '_' + name, ast.Wire, width = num_submodule_rules)
                     # connection of all FIRE signals to the submodule
-                    instance.portlist += (ast.PortArg(name, ast.Identifier(signal_type + '_' + name)),)
+                    instance.portlist += (ast.PortArg(signal_type, ast.Identifier(signal_type + '_' + name)),)
                 # assignments of BLOCK_FIRE_* and FORCE_FIRE_* signals from top-level BLOCK_FIRE and FORCE_FIRE
                 lsb = total_num_bits
                 msb = total_num_bits + num_submodule_rules - 1
@@ -318,6 +208,12 @@ class VerilogMutator:
 
         # new ports
         self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
+        self.add_decls('CAN_FIRE', ast.Output, width = total_num_bits)
+        self.add_decls('WILL_FIRE', ast.Output, width = total_num_bits)
+        self.add_decls('BLOCK_FIRE', ast.Input, width = total_num_bits)
+        self.add_decls('FORCE_FIRE', ast.Input, width = total_num_bits)
+        self.add_decls('CAN_FIRE', ast.Wire, width = total_num_bits)
+        self.add_decls('WILL_FIRE', ast.Wire, width = total_num_bits)
         # connect CAN_FIRE and WILL_FIRE
         can_fires.reverse()
         will_fires.reverse()
@@ -364,16 +260,24 @@ class VerilogProject:
                 ret += self.get_hierarchy(module_name, depth + 1)
         return ret
 
+    def get_num_rules_per_module(self, module_name):
+        if module_name not in self.modules:
+            return 0
+        elif module_name in self.module_hierarchy:
+            num_rules = len(self.modules[module_name].get_rules_in_scheduling_order())
+            for instance_name, submodule_name in self.module_hierarchy[module_name]:
+                num_rules += self.get_num_rules_per_module(submodule_name)
+            return num_rules
+        else:
+            return 0
+
     def expose_fire_signals_hierarchically(self):
         num_rules_per_module = {}
         for module_name in self.modules:
-            if self.modules[module_name] is None:
-                num_rules_per_module[module_name] = 0
-            else:
-                num_rules_per_module[module_name] = len(self.modules[module_name].get_rules_in_scheduling_order())
+            num_rules_per_module[module_name] = self.get_num_rules_per_module(module_name)
         for module_name in self.modules:
             if self.modules[module_name] is not None:
-                self.modules[module_name].expose_internal_scheduling_signals_hierarchically_alt(num_rules_per_module)
+                self.modules[module_name].expose_internal_scheduling_signals(num_rules_per_module)
 
     def write_verilog(self, directory):
         for module_name in self.modules:
