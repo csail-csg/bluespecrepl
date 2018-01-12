@@ -5,6 +5,7 @@ import os
 from pyverilog.vparser.parser import parse
 import pyverilog.vparser.ast as ast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator, ConvertVisitor
+import jinja2
 
 class MyVisitor(ConvertVisitor):
     def __init__(self):
@@ -24,11 +25,8 @@ class CustomizedASTCodeGenerator(ASTCodeGenerator):
 
 class VerilogMutator:
     def __init__(self, verilog_filename):
-        try:
-            with open(verilog_filename) as f:
-                pass
-        except:
-            raise ValueError(verilog_filename + ' does not exist')
+        if not os.path.isfile(verilog_filename):
+            raise ValueError(verilog_filename + ' is not a valid file')
         self.ast_root, self.directives = parse([verilog_filename], preprocess_include = [], preprocess_define = [])
         self.codegen = CustomizedASTCodeGenerator()
         definitions = self.ast_root.description.definitions
@@ -44,6 +42,7 @@ class VerilogMutator:
         # self.module has name, paramlist, portlist, and items
 
     def get_ast(self):
+        '''Get the abstract syntax tree in a human-readable text format'''
         stringio = io.StringIO()
         self.ast_root.show(buf = stringio)
         stringio.seek(0)
@@ -52,7 +51,7 @@ class VerilogMutator:
         return ast
 
     def get_verilog(self):
-        '''Formats the modified verilog ast as verilog source stored in a str'''
+        '''Formats the modified verilog AST as verilog source stored in a str'''
         return self.codegen.visit(self.ast_root)
 
     def write_verilog(self, output_verilog_filename):
@@ -73,6 +72,7 @@ class VerilogMutator:
             return sum(list(map(lambda x: self.get_nodes_by_type(node_type, x, nested), search_root_node.children())), [])
 
     def get_instance(self, name):
+        '''Gets AST nodes for module instances by name'''
         instances = self.get_nodes_by_type(ast.Instance)
         for instance in instances:
             if instance.name == name:
@@ -80,6 +80,7 @@ class VerilogMutator:
         return None
 
     def get_decl_names(self, node_type = None):
+        '''Gets names of declared signals (restricted to a specific type if node_type is provided)'''
         decls = self.get_nodes_by_type(ast.Decl)
         names = []
         for decl in decls:
@@ -89,6 +90,7 @@ class VerilogMutator:
         return names
 
     def add_decls(self, names, node_type, width = None):
+        '''Adds new signal declarations'''
         if not issubclass(node_type, ast.Variable):
             print('ERROR: invalid argument for node_type in VerilogMutator.add_decls()')
         # preprocessing inputs if they don't match the expected type
@@ -114,9 +116,11 @@ class VerilogMutator:
         self.module.items = self.module.items[:insert_index] + (decl,) + self.module.items[insert_index:]
 
     def get_assigns(self):
+        '''Gets AST node for each assignment'''
         return [item for item in self.module.items if isinstance(item, ast.Assign)]
 
     def get_assign(self, name):
+        '''Get assignment for a specific signal'''
         # look through items in module for assignment matching requested name
         for item in self.module.items:
             if isinstance(item, ast.Assign) and isinstance(item.left.var, ast.Identifier) and item.left.var.name == name:
@@ -124,6 +128,7 @@ class VerilogMutator:
         raise ValueError('No assignment found for ' + name)
 
     def add_assign(self, lhs, rhs):
+        '''Adds a new assignment'''
         assign = ast.Assign(ast.Lvalue(ast.Identifier(lhs)), ast.Rvalue(rhs))
         # find index to insert at
         insert_index = 0
@@ -134,6 +139,7 @@ class VerilogMutator:
         self.module.items = self.module.items[:insert_index] + (assign,) + self.module.items[insert_index:]
 
     def add_ports(self, names):
+        '''Adds new ports to the end of the module's ports'''
         if isinstance(names, str):
             name = [names]
         new_ports = []
@@ -154,6 +160,11 @@ class VerilogMutator:
         instances = self.get_nodes_by_type(ast.Instance)
         # instance name, module name
         return [(instance.name, instance.module) for instance in instances]
+
+    def get_default_scheduling_order(self):
+        # if schedule isn't provided, assume rules first then modules
+        scheduling_order = ['RL_' + x for x in self.get_rules_in_scheduling_order()] + ['MODULE_' + x for x, y in self.get_submodules()]
+        return scheduling_order
 
     def expose_internal_scheduling_signals(self, num_rules_per_module = None, scheduling_order = None):
         # if schedule isn't provided, assume rules first then modules
@@ -285,6 +296,21 @@ class VerilogProject:
                 with open(directory + '/' + module_name + '.v', 'w') as f:
                     f.write(self.modules[module_name].get_verilog())
 
+    def generate_verilator_cpp_wrapper(self):
+        template_path = os.path.dirname(os.path.realpath(__file__)) + '/templates/'
+        env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_path))
+        template = env.get_template('verilator_cpp_wrapper.cpp')
+        module_name = self.top
+        scheduling_signals_in_order = self.modules[self.top].get_default_scheduling_order()
+        c_wrapper = template.render({
+            'filename' : module_name,
+            'rules' : scheduling_signals_in_order,
+            'readable_signals' : ['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'],
+            'writable_signals' : ['BLOCK_FIRE', 'FORCE_FIRE']
+            })
+        return c_wrapper
+
+
 if __name__ == '__main__':
     import sys
     verilog_path_and_filename = sys.argv[1]
@@ -316,3 +342,6 @@ if __name__ == '__main__':
     verilog_project.expose_fire_signals_hierarchically()
 
     verilog_project.write_verilog(out_path)
+
+    with open(out_path + '/' + verilog_filename[:-2] + '_wrapper.cpp', 'w') as f:
+        f.write(verilog_project.generate_verilator_cpp_wrapper())
