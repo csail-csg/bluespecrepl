@@ -8,6 +8,8 @@ import subprocess
 import jinja2
 import bluetcl
 import warnings
+import verilog_mutator
+import pyverilator
 from tclutil import *
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
@@ -33,10 +35,12 @@ class BSVProject:
     rts_options -- list of RTS command line arguments for bsc
     """
 
+    # paths that are always appended to the end of the user-specified paths
     default_paths = ['%/Prelude', '%/Libraries', '%/Libraries/BlueNoC']
-    default_arguments = ['-aggressive-conditions', '-keep-fires']
+    # automatically add these to self.bsc_options in the __init__ function
+    default_bsc_options = ['-aggressive-conditions', '-keep-fires']
 
-    def __init__(self, top_file = None, top_module = None, path = [], build_dir = '.', sim_dir = '.', verilog_dir = '.', info_dir = '.', f_dir = '.', sim_exe = 'sim.out', bsc_options = [], rts_options = [], bspec_file = None):
+    def __init__(self, top_file = None, top_module = None, path = [], build_dir = 'build_dir', sim_dir = 'sim_dir', verilog_dir = 'verilog_dir', info_dir = 'info_dir', f_dir = '.', sim_exe = 'sim.out', bsc_options = [], rts_options = [], bspec_file = None):
         if bspec_file is not None:
             import_bspec_project_file(bspec_file)
         else:
@@ -55,7 +59,7 @@ class BSVProject:
             self.f_dir = f_dir
             # Options
             self.sim_exe = sim_exe
-            for arg in BSVProject.default_arguments:
+            for arg in BSVProject.default_bsc_options:
                 if arg not in bsc_options:
                     bsc_options.append(arg)
             self.bsc_options = bsc_options
@@ -94,31 +98,55 @@ class BSVProject:
         return ['-o', self.sim_exe]
 
     # compilation functions
-    def compile_verilog(self, out_folder = None):
+    def compile_verilog(self, out_folder = None, extra_bsc_args = []):
         """Compiles the project to verilog.
 
         If out_folder is specified, the verilog is written there. Otherwise the
         verilog is written to the projects verilog_dir.
         """
-        bsc_command = ['bsc', '-verilog', '-elab', '-keep-fires', '-no-opt-ATS'] + self.get_dir_args(verilog_dir = out_folder) + self.get_path_arg() + ['-g', self.top_module, '-u', self.top_file]
+        # add the -elab flag to ensure .ba files are generated during compilation
+        bsc_command = ['bsc', '-verilog', '-elab'] + self.bsc_options + extra_bsc_args + self.get_dir_args(verilog_dir = out_folder) + self.get_path_arg() + ['-g', self.top_module, '-u', self.top_file]
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
             raise Exception('Bluespec Compiler failed compilation')
 
-    def compile_bluesim(self, out_folder = None):
+    def compile_bluesim(self, out_folder = None, extra_bsc_args = []):
         """Compiles the project to a bluesim executable.
 
         If out_folder is specified, the bluesim intermediate files are written
         there. Otherwise the files are written to sim_dir.
         """
-        bsc_command = ['bsc', '-sim', '-keep-fires'] + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + ['-g', self.top_module, '-u', self.top_file]
+        bsc_command = ['bsc', '-sim'] + self.bsc_options + extra_bsc_args + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + ['-g', self.top_module, '-u', self.top_file]
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
             raise Exception('Bluespec Compiler failed compilation')
-        bsc_command = ['bsc', '-sim', '-keep-fires'] + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + ['-e', self.top_module]
+        bsc_command = ['bsc', '-sim'] + self.bsc_options + extra_bsc_args + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + ['-e', self.top_module]
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
             raise Exception('Bluespec Compiler failed compilation')
+
+    def gen_python_repl(self, scheduling_control = False, verilator_dir = 'verilator_dir'):
+        """Compiles the project to a python BluespecREPL compatable verilator executable."""
+        extra_bsc_args = []
+        if scheduling_control:
+            extra_bsc_args.append('-no-opt-ATS')
+        self.compile_verilog(extra_bsc_args = extra_bsc_args)
+
+        verilog_file = os.path.join(self.verilog_dir, self.top_module + '.v')
+        rules = []
+        if scheduling_control:
+            # modify the compiled verilog to add scheduling control signals
+            mutator = verilog_mutator.VerilogMutator(verilog_file)
+            mutator.expose_internal_scheduling_signals()
+            mutator.write_verilog(verilog_file)
+            rules = mutator.get_rules_in_scheduling_order()
+
+        bsv_verilog_dir = os.path.join(os.environ['BLUESPECDIR'], 'Verilog')
+        return pyverilator.PyVerilator.build(
+                verilog_file,
+                verilog_path = [self.verilog_dir, bsv_verilog_dir],
+                build_dir = verilator_dir,
+                rules = rules)
 
     def clean(self):
         """Deletes output from project compilation."""
@@ -219,7 +247,6 @@ class BSVProject:
     def get_module_schedule(self, module_name = None):
         if module_name is None:
             module_name = self.top_module
-        # TODO: implement this function
         with bluetcl.BlueTCL() as btcl:
             btcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
             btcl.eval('Bluetcl::module load ' + module_name)
@@ -269,98 +296,12 @@ class BSVProject:
         return complete_schedule
 
 if __name__ == '__main__':
-    module_name = 'mkComplexRuleScheduling'
+    bsv_module_text='''(* noinline *)
+    function Bit#(8) do_addition( Bit#(8) a, Bit#(8) b );
+        return a + b;
+    endfunction'''
+    module_name = 'module_do_addition'
     bsv_file = 'Test.bsv'
-    bsv_module_text = '''
-import FIFO::*;
-
-(* synthesize *)
-module mkComplexRuleScheduling(FIFO#(Bit#(8)));
-    FIFO#(Bit#(8)) in <- mkComplexPipeline;
-    FIFO#(Bit#(8)) middle <- mkComplexPipeline;
-    FIFO#(Bit#(8)) out <- mkComplexPipeline;
-
-    rule to_middle;
-        middle.enq(in.first + 1);
-        in.deq;
-    endrule
-
-    rule from_middle;
-        out.enq(middle.first + 1);
-        middle.deq;
-    endrule
-
-    method Bit#(8) first;
-        return out.first;
-    endmethod
-
-    method Action deq;
-        out.deq;
-    endmethod
-
-    method Action enq(Bit#(8) x);
-        in.enq(x);
-    endmethod
-endmodule
-
-(* synthesize *)
-module mkComplexPipeline(FIFO#(Bit#(8)));
-    FIFO#(Bit#(8)) in <- mkPipeline;
-    FIFO#(Bit#(8)) middle <- mkPipeline;
-    FIFO#(Bit#(8)) out <- mkPipeline;
-
-    rule to_middle;
-        middle.enq(in.first + 1);
-        in.deq;
-    endrule
-
-    rule from_middle;
-        out.enq(middle.first + 1);
-        middle.deq;
-    endrule
-
-    method Bit#(8) first;
-        return out.first;
-    endmethod
-
-    method Action deq;
-        out.deq;
-    endmethod
-
-    method Action enq(Bit#(8) x);
-        in.enq(x);
-    endmethod
-endmodule
-
-(* synthesize *)
-module mkPipeline(FIFO#(Bit#(8)));
-    FIFO#(Bit#(8)) in <- mkLFIFO;
-    FIFO#(Bit#(8)) middle <- mkLFIFO;
-    FIFO#(Bit#(8)) out <- mkLFIFO;
-
-    rule to_middle;
-        middle.enq(in.first + 1);
-        in.deq;
-    endrule
-
-    rule from_middle;
-        out.enq(middle.first + 1);
-        middle.deq;
-    endrule
-
-    method Bit#(8) first;
-        return out.first;
-    endmethod
-
-    method Action deq;
-        out.deq;
-    endmethod
-
-    method Action enq(Bit#(8) x);
-        in.enq(x);
-    endmethod
-endmodule
-    '''
 
     warnings.simplefilter('ignore')
 
@@ -371,12 +312,11 @@ endmodule
     with open(bsv_file, 'w') as f:
         f.write(bsv_module_text)
 
-    project = BSVProject( top_module = module_name, top_file = bsv_file, build_dir = 'bdir', sim_dir = 'simdir', verilog_dir = 'vdir' )
-    project.compile_verilog()
-    project.compile_bluesim()
-    hierarchy = project.get_hierarchy()
-    print('\nhierarchy = %s\n' % str(hierarchy))
-    schedule = project.get_module_schedule()
-    print('schedule = %s\n' % str(schedule))
-    project.export_bspec_project_file('test.bspec')
-    print('exported test.bspec project file to ' + os.path.join(os.path.abspath(os.curdir), 'test.bspec'))
+    project = BSVProject(top_module = module_name, top_file = bsv_file)
+    repl = project.gen_python_repl()
+    tests = [(0, 0), (1, 2), (3, 6), (255, 1), (255, 2)]
+    for x, y in tests:
+        repl['do_addition_a'] = x
+        repl['do_addition_b'] = y
+        out = repl['do_addition']
+        print('%d + %d = %d' % (x, y, out))

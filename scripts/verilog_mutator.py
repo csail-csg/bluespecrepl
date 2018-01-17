@@ -7,13 +7,6 @@ import pyverilog.vparser.ast as ast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator, ConvertVisitor
 import jinja2
 
-class MyVisitor(ConvertVisitor):
-    def __init__(self):
-        self.decls = []
-    def visit_Decl(self, node):
-        decls = decls ++ node.list
-        # do something
-
 class CustomizedASTCodeGenerator(ASTCodeGenerator):
     '''Same as ASTCodeGenerator except for adding newlines between signal
     declarations that came from the same source declaration statement.'''
@@ -24,10 +17,10 @@ class CustomizedASTCodeGenerator(ASTCodeGenerator):
         return '\n'.join([self.visit(item) for item in node.list])
 
 class VerilogMutator:
-    def __init__(self, verilog_filename):
-        if not os.path.isfile(verilog_filename):
-            raise ValueError(verilog_filename + ' is not a valid file')
-        self.ast_root, self.directives = parse([verilog_filename], preprocess_include = [], preprocess_define = [])
+    def __init__(self, verilog_file_path):
+        if not os.path.isfile(verilog_file_path):
+            raise ValueError(verilog_file_path + ' is not a valid file')
+        self.ast_root, self.directives = parse([verilog_file_path], preprocess_include = [], preprocess_define = [])
         self.codegen = CustomizedASTCodeGenerator()
         definitions = self.ast_root.description.definitions
         self.module = None
@@ -36,9 +29,9 @@ class VerilogMutator:
                 if self.module is None:
                     self.module = definition
                 else:
-                    raise ValueError(verilog_filename + ' has more than one module defined within it')
+                    raise ValueError(verilog_file_path + ' has more than one module defined within it')
         if self.module is None:
-            raise ValueError(verilog_filename + ' has no module defined within it')
+            raise ValueError(verilog_file_path + ' has no module defined within it')
         # self.module has name, paramlist, portlist, and items
 
     def get_ast(self):
@@ -147,6 +140,26 @@ class VerilogMutator:
             new_ports.append(ast.Port(name, None, None))
         self.module.portlist.ports = self.module.portlist.ports + tuple(new_ports)
 
+    def get_inputs(self):
+        """Returns list of tuples of input name and width."""
+        inputs = []
+        decls = self.get_nodes_by_type(ast.Decl)
+        for decl in decls:
+            for item in decl.list:
+                if isinstance(item, ast.Input):
+                    inputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
+        return inputs
+
+    def get_outputs(self):
+        """Returns list of tuples of output name and width."""
+        outputs = []
+        decls = self.get_nodes_by_type(ast.Decl)
+        for decl in decls:
+            for item in decl.list:
+                if isinstance(item, ast.Output):
+                    outputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
+        return outputs
+
     def get_rules_in_scheduling_order(self):
         # get names of rules by looking for declared signals starting with the prefix
         # 'CAN_FIRE_RL_'. This will produce the rule names in scheduling order since
@@ -170,7 +183,6 @@ class VerilogMutator:
         # if schedule isn't provided, assume rules first then modules
         if scheduling_order is None:
             scheduling_order = ['RL_' + x for x in self.get_rules_in_scheduling_order()] + ['MODULE_' + x for x, y in self.get_submodules()]
-            print('Scheduling Order:\n    ' + '\n    '.join(scheduling_order))
         instance_to_module = {x: y for x, y in self.get_submodules()}
         can_fires = []
         will_fires = []
@@ -194,6 +206,8 @@ class VerilogMutator:
                 instance_name = name[len('MODULE_'):]
                 instance = self.get_instance(instance_name)
                 module_name = instance_to_module[instance_name]
+                if num_rules_per_module is None:
+                    continue
                 if module_name not in num_rules_per_module:
                     continue
                 num_submodule_rules = num_rules_per_module[module_name]
@@ -217,99 +231,20 @@ class VerilogMutator:
             else:
                 raise ValueError('unexpected entry "%s" in scheduling_order' % name)
 
-        # new ports
-        self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
-        self.add_decls('CAN_FIRE', ast.Output, width = total_num_bits)
-        self.add_decls('WILL_FIRE', ast.Output, width = total_num_bits)
-        self.add_decls('BLOCK_FIRE', ast.Input, width = total_num_bits)
-        self.add_decls('FORCE_FIRE', ast.Input, width = total_num_bits)
-        self.add_decls('CAN_FIRE', ast.Wire, width = total_num_bits)
-        self.add_decls('WILL_FIRE', ast.Wire, width = total_num_bits)
-        # connect CAN_FIRE and WILL_FIRE
-        can_fires.reverse()
-        will_fires.reverse()
-        self.add_assign('CAN_FIRE', ast.Concat(can_fires))
-        self.add_assign('WILL_FIRE', ast.Concat(will_fires))
-
-class VerilogProject:
-    def __init__(self, top_module, verilog_path):
-        # read through verilog files and build hierarchy
-        # this assumes a module named mkModule is found in a file called mkModule.v
-        self.top = top_module
-        # module_name -> (VerilogMutator or None)
-        self.modules = {}
-        # module_name -> [(instance_name, module_name)]
-        self.module_hierarchy = {}
-        # set of modules which have been instrumented already
-        self.instrumented_modules = []
-        # now populate self.modules
-        modules_to_parse = [self.top]
-        while len(modules_to_parse) != 0:
-            module = modules_to_parse[0]
-            modules_to_parse = modules_to_parse[1:]
-            filename = verilog_path + '/' + module + '.v'
-            try:
-                self.modules[module] = VerilogMutator(filename)
-                submodules = self.modules[module].get_submodules()
-                self.module_hierarchy[module] = submodules
-                for instance_name, submodule_name in submodules:
-                    if submodule_name not in self.modules and submodule_name not in modules_to_parse:
-                        modules_to_parse.append(submodule_name)
-            except Exception as e:
-                self.modules[module] = None
-                #print('WARNING: unable to step through submodule "%s"' % module)
-                #print(str(e))
-
-    def get_hierarchy(self, module_name = None, depth = 0):
-        ret = ''
-        if module_name is None:
-            ret += ('  ' * depth) + self.top + '\n'
-            ret += self.get_hierarchy(self.top, 1)
-        elif module_name in self.module_hierarchy:
-            for instance_name, module_name in self.module_hierarchy[module_name]:
-                ret += ('  ' * depth) + instance_name + ' (' + module_name + ')' + '\n'
-                ret += self.get_hierarchy(module_name, depth + 1)
-        return ret
-
-    def get_num_rules_per_module(self, module_name):
-        if module_name not in self.modules:
-            return 0
-        elif module_name in self.module_hierarchy:
-            num_rules = len(self.modules[module_name].get_rules_in_scheduling_order())
-            for instance_name, submodule_name in self.module_hierarchy[module_name]:
-                num_rules += self.get_num_rules_per_module(submodule_name)
-            return num_rules
-        else:
-            return 0
-
-    def expose_fire_signals_hierarchically(self):
-        num_rules_per_module = {}
-        for module_name in self.modules:
-            num_rules_per_module[module_name] = self.get_num_rules_per_module(module_name)
-        for module_name in self.modules:
-            if self.modules[module_name] is not None:
-                self.modules[module_name].expose_internal_scheduling_signals(num_rules_per_module)
-
-    def write_verilog(self, directory):
-        for module_name in self.modules:
-            if self.modules[module_name] is not None:
-                with open(directory + '/' + module_name + '.v', 'w') as f:
-                    f.write(self.modules[module_name].get_verilog())
-
-    def generate_verilator_cpp_wrapper(self):
-        template_path = os.path.dirname(os.path.realpath(__file__)) + '/templates/'
-        env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_path))
-        template = env.get_template('verilator_cpp_wrapper.cpp')
-        module_name = self.top
-        scheduling_signals_in_order = self.modules[self.top].get_default_scheduling_order()
-        c_wrapper = template.render({
-            'filename' : module_name,
-            'rules' : scheduling_signals_in_order,
-            'readable_signals' : ['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'],
-            'writable_signals' : ['BLOCK_FIRE', 'FORCE_FIRE']
-            })
-        return c_wrapper
-
+        if total_num_bits != 0:
+            # new ports
+            self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
+            self.add_decls('CAN_FIRE', ast.Output, width = total_num_bits)
+            self.add_decls('WILL_FIRE', ast.Output, width = total_num_bits)
+            self.add_decls('BLOCK_FIRE', ast.Input, width = total_num_bits)
+            self.add_decls('FORCE_FIRE', ast.Input, width = total_num_bits)
+            self.add_decls('CAN_FIRE', ast.Wire, width = total_num_bits)
+            self.add_decls('WILL_FIRE', ast.Wire, width = total_num_bits)
+            # connect CAN_FIRE and WILL_FIRE
+            can_fires.reverse()
+            will_fires.reverse()
+            self.add_assign('CAN_FIRE', ast.Concat(can_fires))
+            self.add_assign('WILL_FIRE', ast.Concat(will_fires))
 
 if __name__ == '__main__':
     import sys
