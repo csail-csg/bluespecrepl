@@ -169,7 +169,7 @@ class PyVerilator:
             self._write_32(port_name, value)
         if self.auto_eval:
             self.eval()
-        if self.auto_tracing_mode == 'CLK':
+        if self.auto_tracing_mode == 'CLK' and port_name == 'CLK':
             self.add_to_vcd_trace()
 
     def _write_32(self, port_name, value):
