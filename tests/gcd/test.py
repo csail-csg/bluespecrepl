@@ -60,6 +60,8 @@ result_ready = BSVInterfaceMethod(sim, output = 'result_ready')
 result_deq = BSVInterfaceMethod(sim, ready = 'RDY_result_deq', enable = 'EN_result_deq')
 result = BSVInterfaceMethod(sim, output = 'result', ready = 'RDY_result')
 
+sim.start_vcd_trace('gcd.vcd')
+
 # test
 while not start.is_ready():
     print('tick until start.ready()')
@@ -81,4 +83,4 @@ result_deq()
 
 tick(1)
 
-
+sim.stop_vcd_trace()
