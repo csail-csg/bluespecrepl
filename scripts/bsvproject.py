@@ -159,13 +159,27 @@ class BSVProject:
 
     def clean(self):
         """Deletes output from project compilation."""
+        cleaning_tasks = [
+                (self.build_dir, ['.ba', '.bo']),
+                (self.sim_dir, ['.cxx', '.h', '.o']),
+                (self.verilog_dir, ['.v']),
+                (self.info_dir, [])]
         # This function should delete:
         #   *.ba, *.bo from build_dir
-        #   *.cxx, *.o, *.h, etc. from sim_dir
+        #   *.cxx, *.h, *.o from sim_dir
         #   *.v from verilog_dir
         #   ? from info_dir
         #   sim_exe
-        raise NotImplementedError('clean is not implemented yet')
+        for path, extensions in cleaning_tasks:
+            for name in os.listdir(path):
+                if os.path.splitext(name)[1].lower() in extensions:
+                    os.remove(os.path.join(path, name))
+            try:
+                os.rmdir(path)
+            except OSError:
+                # ignore errors
+                pass
+        os.remove(self.sim_exe)
 
     # import/export methods
     def import_bspec_project_file(filename):
