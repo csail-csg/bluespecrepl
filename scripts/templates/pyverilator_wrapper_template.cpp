@@ -1,6 +1,7 @@
 {% set objtype = 'V' + top_module %}
 #include <cstddef>
 #include "verilated.h"
+#include "verilated_vcd_c.h"
 #include "{{ objtype }}.h"
 
 // pyverilator defined values
@@ -50,6 +51,7 @@ const char* _pyverilator_rules[] = {
 extern "C" {
 {{ objtype }}* construct() {
     Verilated::commandArgs(0, (const char**) nullptr);
+    Verilated::traceEverOn(true);
     {{ objtype }}* top = new {{ objtype }}();
     return top;
 }
@@ -62,6 +64,20 @@ int destruct({{ objtype }}* top) {
         delete top;
         top = nullptr;
     }
+    return 0;
+}
+VerilatedVcdC* start_vcd_trace({{ objtype }}* top, const char* filename) {
+    VerilatedVcdC* tfp = new VerilatedVcdC;
+    top->trace(tfp, 99);
+    tfp->open(filename);
+    return tfp;
+}
+int add_to_vcd_trace(VerilatedVcdC* tfp, int time) {
+    tfp->dump(time);
+    return 0;
+}
+int stop_vcd_trace(VerilatedVcdC* tfp) {
+    tfp->close();
     return 0;
 }
 

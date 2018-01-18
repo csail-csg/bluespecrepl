@@ -159,7 +159,7 @@ class BSVProject:
 
     def clean(self):
         """Deletes output from project compilation."""
-        cleaning_tasks = [
+        cleaning_targets = [
                 (self.build_dir, ['.ba', '.bo']),
                 (self.sim_dir, ['.cxx', '.h', '.o']),
                 (self.verilog_dir, ['.v']),
@@ -170,7 +170,7 @@ class BSVProject:
         #   *.v from verilog_dir
         #   ? from info_dir
         #   sim_exe
-        for path, extensions in cleaning_tasks:
+        for path, extensions in cleaning_targets:
             for name in os.listdir(path):
                 if os.path.splitext(name)[1].lower() in extensions:
                     os.remove(os.path.join(path, name))

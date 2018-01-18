@@ -50,7 +50,7 @@ class PyVerilator:
         verilog_path_args = []
         for verilog_dir in verilog_path:
             verilog_path_args += ['-y', verilog_dir]
-        verilator_args = ['bash', 'verilator', '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
+        verilator_args = ['bash', 'verilator', '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--trace', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
         subprocess.call(verilator_args)
 
         # if only generating verilator C++ files, stop here
@@ -72,6 +72,10 @@ class PyVerilator:
         self.model = None
         self.so_file = so_file
         self.auto_eval = auto_eval
+        # initialize vcd variables
+        self.vcd_trace = None
+        self.auto_tracing_mode = None
+        self.curr_time = 0
 
         self.lib = ctypes.CDLL(so_file)
         construct = self.lib.construct
@@ -165,6 +169,8 @@ class PyVerilator:
             self._write_32(port_name, value)
         if self.auto_eval:
             self.eval()
+        if self.auto_tracing_mode == 'CLK':
+            self.add_to_vcd_trace()
 
     def _write_32(self, port_name, value):
         fn = getattr(self.lib, 'set_' + port_name)
@@ -212,7 +218,33 @@ class PyVerilator:
         return False
 
     def eval(self):
-        return self.lib.eval(self.model)
+        self.lib.eval(self.model)
+        if self.auto_tracing_mode == 'eval':
+            self.add_to_vcd_trace()
+
+    def start_vcd_trace(self, filename, auto_tracing = True):
+        start_vcd_trace = self.lib.start_vcd_trace
+        start_vcd_trace.restype = ctypes.c_void_p
+        self.vcd_trace = start_vcd_trace(self.model, ctypes.c_char_p(filename.encode('ascii')))
+
+        if not auto_tracing:
+            self.auto_tracing_mode = None
+        elif 'CLK' in self:
+            self.auto_tracing_mode = 'CLK'
+        else:
+            self.auto_tracing_mode = 'eval'
+        self.curr_time = 0
+        # initial vcd data
+        self.add_to_vcd_trace()
+
+    def add_to_vcd_trace(self):
+        self.lib.add_to_vcd_trace(self.vcd_trace, self.curr_time)
+        self.curr_time += 1
+
+    def stop_vcd_trace(self):
+        self.lib.stop_vcd_trace(self.vcd_trace)
+        self.vcd_trace = None
+        self.auto_tracing_mode = None
 
 if __name__ == '__main__':
     test_verilog = '''
@@ -240,9 +272,11 @@ if __name__ == '__main__':
         f.write(test_verilog)
     pyverilator = PyVerilator.build('width_test.v')
 
+    pyverilator.start_vcd_trace('test.vcd')
     pyverilator['input_a'] = 0xaa
     pyverilator['input_b'] = 0x1bbb
     pyverilator['input_c'] = 0x3ccccccc
     pyverilator['input_d'] = 0x7ddddddddddddddd
     pyverilator['input_e'] = 0xfeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
     print('output_concat = ' + hex(pyverilator['output_concat']))
+    pyverilator.stop_vcd_trace()
