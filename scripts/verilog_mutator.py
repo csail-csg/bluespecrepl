@@ -147,7 +147,10 @@ class VerilogMutator:
         for decl in decls:
             for item in decl.list:
                 if isinstance(item, ast.Input):
-                    inputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
+                    if item.width is None:
+                        inputs.append((item.name, 1))
+                    else:
+                        inputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
         return inputs
 
     def get_outputs(self):
@@ -157,7 +160,10 @@ class VerilogMutator:
         for decl in decls:
             for item in decl.list:
                 if isinstance(item, ast.Output):
-                    outputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
+                    if item.width is None:
+                        outputs.append((item.name, 1))
+                    else:
+                        outputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
         return outputs
 
     def get_rules_in_scheduling_order(self):

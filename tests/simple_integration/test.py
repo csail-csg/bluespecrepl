@@ -1,90 +1,63 @@
 #!/usr/bin/env python3
 
-import ctypes
 import sys
 sys.path.append("../../scripts")
-from verilator_wrapper import VerilatorWrapper
+import bsvproject
 
-lib = VerilatorWrapper('obj_dir/VmkSimpleIntegration')
+proj = bsvproject.BSVProject('SimpleIntegration.bsv', 'mkSimpleIntegration')
+sim = proj.gen_python_repl(scheduling_control = True)
+# set auto_eval, so if a signal is changed, run the eval() function
+sim.auto_eval = True
 
-num_rules = lib.get_num_rules()
-print('num_rules = ' + str(num_rules))
-
-print('using get_rule(x):')
-for i in range(num_rules):
-    print('rule[%d] = %s' % (i, lib.get_rule(i)))
+print('List of rules:  \n' + '\n  '.join(sim.rules))
 
 def tick(n):
     for i in range(n):
-        lib.eval()
-        lib.set_CLK(1)
-        lib.eval()
-        lib.set_CLK(0)
-        lib.eval()
+        sim['CLK'] = 0
+        sim['CLK'] = 1
 
 tick(10)
 
-x = lib.get_CAN_FIRE(3)
-print('always_ready_and_enabled.CAN_FIRE = ' + str(x))
-x = lib.get_WILL_FIRE(3)
-print('always_ready_and_enabled.WILL_FIRE = ' + str(x))
-x = lib.get_FORCE_FIRE(3)
-print('always_ready_and_enabled.FORCE_FIRE = ' + str(x))
-x = lib.get_BLOCK_FIRE(3)
-print('always_ready_and_enabled.BLOCK_FIRE = ' + str(x))
+def display_by_rule(signal, val):
+    print(signal)
+    for i in range(len(sim.rules)):
+        print('    ' + signal + '_' + sim.rules[i] + ' = '+ str((val >> i) & 1))
 
-print('')
-print('blocking always_ready_and_enabled...')
-lib.set_BLOCK_FIRE(3, 1)
+display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
+display_by_rule('WILL_FIRE', sim['WILL_FIRE'])
+display_by_rule('FORCE_FIRE', sim['FORCE_FIRE'])
+display_by_rule('BLOCK_FIRE', sim['BLOCK_FIRE'])
 
-print('')
-x = lib.get_CAN_FIRE(3)
-print('always_ready_and_enabled.CAN_FIRE = ' + str(x))
-x = lib.get_WILL_FIRE(3)
-print('always_ready_and_enabled.WILL_FIRE = ' + str(x))
-x = lib.get_FORCE_FIRE(3)
-print('always_ready_and_enabled.FORCE_FIRE = ' + str(x))
-x = lib.get_BLOCK_FIRE(3)
-print('always_ready_and_enabled.BLOCK_FIRE = ' + str(x))
+print('\nblocking always_ready_and_enabled...\n')
+sim['BLOCK_FIRE'] |= (1 << 3)
 
-print('')
-print('evaluating...')
-lib.eval()
+display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
+display_by_rule('WILL_FIRE', sim['WILL_FIRE'])
+display_by_rule('FORCE_FIRE', sim['FORCE_FIRE'])
+display_by_rule('BLOCK_FIRE', sim['BLOCK_FIRE'])
 
-print('')
-x = lib.get_CAN_FIRE(3)
-print('always_ready_and_enabled.CAN_FIRE = ' + str(x))
-x = lib.get_WILL_FIRE(3)
-print('always_ready_and_enabled.WILL_FIRE = ' + str(x))
-x = lib.get_FORCE_FIRE(3)
-print('always_ready_and_enabled.FORCE_FIRE = ' + str(x))
-x = lib.get_BLOCK_FIRE(3)
-print('always_ready_and_enabled.BLOCK_FIRE = ' + str(x))
-
-print('')
-print('ticking clock...')
+print('\nticking clock...\n')
 tick(1)
 
-print('')
-x = lib.get_CAN_FIRE(3)
-print('always_ready_and_enabled.CAN_FIRE = ' + str(x))
-x = lib.get_WILL_FIRE(3)
-print('always_ready_and_enabled.WILL_FIRE = ' + str(x))
-x = lib.get_FORCE_FIRE(3)
-print('always_ready_and_enabled.FORCE_FIRE = ' + str(x))
-x = lib.get_BLOCK_FIRE(3)
-print('always_ready_and_enabled.BLOCK_FIRE = ' + str(x))
+display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
+display_by_rule('WILL_FIRE', sim['WILL_FIRE'])
+display_by_rule('FORCE_FIRE', sim['FORCE_FIRE'])
+display_by_rule('BLOCK_FIRE', sim['BLOCK_FIRE'])
 
-print('')
-print('blocking all rules...')
-for i in range(5):
-    lib.set_BLOCK_FIRE(i, 1)
+print('\nblocking all rules...\n')
+sim['BLOCK_FIRE'] = (1 << len(sim.rules)) - 1
 
-print('')
-print('ticking clock...')
-tick(1)
+display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
+display_by_rule('WILL_FIRE', sim['WILL_FIRE'])
+display_by_rule('FORCE_FIRE', sim['FORCE_FIRE'])
+display_by_rule('BLOCK_FIRE', sim['BLOCK_FIRE'])
 
-print('')
-print('ticking clock...')
-tick(1)
+print('\nticking clock 5 times...\n')
+tick(5)
 
+display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
+display_by_rule('WILL_FIRE', sim['WILL_FIRE'])
+display_by_rule('FORCE_FIRE', sim['FORCE_FIRE'])
+display_by_rule('BLOCK_FIRE', sim['BLOCK_FIRE'])
+
+print('\nDone')

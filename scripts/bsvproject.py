@@ -5,6 +5,7 @@ import os
 import re
 import glob
 import subprocess
+import shutil
 import jinja2
 import bluetcl
 import warnings
@@ -132,7 +133,15 @@ class BSVProject:
             extra_bsc_args.append('-no-opt-ATS')
         self.compile_verilog(extra_bsc_args = extra_bsc_args)
 
-        verilog_file = os.path.join(self.verilog_dir, self.top_module + '.v')
+        # copy verilog files to verilator dir
+        if not os.path.exists(verilator_dir):
+            os.makedirs(verilator_dir)
+        for name in os.listdir(self.verilog_dir):
+            base, extension = os.path.splitext(name)
+            if extension.lower() == '.v':
+                shutil.copy(os.path.join(self.verilog_dir, name), os.path.join(verilator_dir, name))
+
+        verilog_file = os.path.join(verilator_dir, self.top_module + '.v')
         rules = []
         if scheduling_control:
             # modify the compiled verilog to add scheduling control signals
@@ -144,7 +153,7 @@ class BSVProject:
         bsv_verilog_dir = os.path.join(os.environ['BLUESPECDIR'], 'Verilog')
         return pyverilator.PyVerilator.build(
                 verilog_file,
-                verilog_path = [self.verilog_dir, bsv_verilog_dir],
+                verilog_path = [verilator_dir, bsv_verilog_dir],
                 build_dir = verilator_dir,
                 rules = rules)
 
