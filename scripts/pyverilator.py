@@ -240,6 +240,11 @@ class PyVerilator:
     def add_to_vcd_trace(self):
         self.lib.add_to_vcd_trace(self.vcd_trace, self.curr_time)
         self.curr_time += 1
+        # go ahead and flush on each vcd update
+        self.flush_vcd_trace()
+
+    def flush_vcd_trace(self):
+        self.lib.flush_vcd_trace(self.vcd_trace)
 
     def stop_vcd_trace(self):
         self.lib.stop_vcd_trace(self.vcd_trace)

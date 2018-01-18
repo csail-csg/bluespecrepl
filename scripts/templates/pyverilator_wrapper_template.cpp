@@ -76,6 +76,10 @@ int add_to_vcd_trace(VerilatedVcdC* tfp, int time) {
     tfp->dump(time);
     return 0;
 }
+int flush_vcd_trace(VerilatedVcdC* tfp) {
+    tfp->flush();
+    return 0;
+}
 int stop_vcd_trace(VerilatedVcdC* tfp) {
     tfp->close();
     return 0;
