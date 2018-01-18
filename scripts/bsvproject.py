@@ -235,7 +235,10 @@ class BSVProject:
         params['COMP_VDIR'] = self.verilog_dir
         params['COMP_INFO_DIR'] = self.info_dir
         params['CURRENT_DIR'] = self.f_dir
-        params['LINK_OUTDIR'] = os.path.dirname(self.sim_exe)
+        link_outdir = os.path.dirname(self.sim_exe)
+        if link_outdir == '':
+            link_outdir = '.'
+        params['LINK_OUTDIR'] = link_outdir
         params['LINK_OUTNAME'] = os.path.basename(self.sim_exe)
         params['COMP_BSC_OPTIONS'] = ' '.join(self.bsc_options)
         params['LINK_BSC_OPTIONS'] = ' '.join(self.bsc_options)
