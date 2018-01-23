@@ -3,9 +3,11 @@
 import sys
 sys.path.append("../../scripts")
 import bsvproject
+import tclwrapper
 
 proj = bsvproject.BSVProject('GCD.bsv', 'mkGCD')
 sim = proj.gen_python_repl(scheduling_control = True)
+proj.export_bspec_project_file('gcd.bspec')
 # set auto_eval, so if a signal is changed, run the eval() function
 sim.auto_eval = True
 
@@ -84,3 +86,26 @@ result_deq()
 tick(1)
 
 sim.stop_vcd_trace()
+
+# load gtkwave
+
+with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+    bluetcl.eval('''
+        package require Virtual
+        package require Waves
+
+        Bluetcl::flags set "-verilog" -p %s:+
+        Bluetcl::module load mkGCD
+
+        set v [Waves::start_replay_viewer -e mkGCD -backend -verilog -viewer GtkWave -Command gtkwave -StartTimeout 5]
+        $v start
+
+        $v load_dump_file 'gcd.vcd'
+        ''' % proj.build_dir)
+    bluetcl.eval('''
+        set will_fires [Virtual::signal filter *WILL_FIRE*]
+        $v send_objects $will_fires
+        ''')
+    import time
+    time.sleep(100)
+

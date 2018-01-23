@@ -7,7 +7,7 @@ import glob
 import subprocess
 import shutil
 import jinja2
-import bluetcl
+import tclwrapper
 import warnings
 import verilog_mutator
 import pyverilator
@@ -252,20 +252,20 @@ class BSVProject:
             module_name = self.top_module
         hierarchy = {}
         modules_to_add = [module_name]
-        with bluetcl.BlueTCL() as btcl:
-            btcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
+        with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+            bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
             while len(modules_to_add) > 0:
                 curr_module_name = modules_to_add.pop()
                 try:
-                    btcl.eval('Bluetcl::module load ' + curr_module_name)
+                    bluetcl.eval('Bluetcl::module load ' + curr_module_name)
                     hierarchy[curr_module_name] = []
-                    user_or_prim, submodules, functions = tclstring_to_nested_list(btcl.eval('Bluetcl::module submods ' + curr_module_name))
+                    user_or_prim, submodules, functions = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module submods ' + curr_module_name))
                     if user_or_prim == 'user':
                         for instance_name, submodule_name in submodules:
                             if submodule_name not in hierarchy and submodule_name not in modules_to_add:
                                 modules_to_add.append(submodule_name)
                             hierarchy[curr_module_name].append((instance_name, submodule_name))
-                except bluetcl.BlueTCLError as e:
+                except tclwrapper.TCLWrapperError as e:
                     # couldn't load modules, typically the case for primitive modules such as FIFOs
                     hierarchy[curr_module_name] = None
         return hierarchy
@@ -273,10 +273,10 @@ class BSVProject:
     def get_module_schedule(self, module_name = None):
         if module_name is None:
             module_name = self.top_module
-        with bluetcl.BlueTCL() as btcl:
-            btcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
-            btcl.eval('Bluetcl::module load ' + module_name)
-            return tclstring_to_list(btcl.eval('Bluetcl::schedule execution ' + module_name))
+        with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+            bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
+            bluetcl.eval('Bluetcl::module load ' + module_name)
+            return tclstring_to_list(bluetcl.eval('Bluetcl::schedule execution ' + module_name))
 
     def get_complete_schedule(self):
         """Returns the complete schedule for the top module.
