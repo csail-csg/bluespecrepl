@@ -88,7 +88,7 @@ class TCLWrapper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
 
-    def eval(self, command):
+    def eval(self, command, to_list = False):
         """Execute a single command in tcl and return the output string.
         
         If a script containing multiple commands is passed in, the output
@@ -162,6 +162,8 @@ class TCLWrapper:
             if stderr:
                 warnings.warn('tcl command "%s" generated stderr message %s' % (command, repr(stderr)), stacklevel = 2)
         self.last_stderr = stderr
+        if to_list:
+            stdout = tclstring_to_list(stdout)
         return stdout 
 
 if __name__ == '__main__':
