@@ -77,7 +77,11 @@ class TCLWrapper:
         """Stop the tcl background process."""
         if not self._process:
             raise ('no tcl instance running.')
-        self._process.communicate()
+        try:
+            self._process.communicate(timeout = 1)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.communicate()
         del self._process
         self._process = None
 

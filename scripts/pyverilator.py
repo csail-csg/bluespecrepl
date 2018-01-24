@@ -4,6 +4,7 @@ import ctypes
 import os
 import subprocess
 import jinja2
+import vcd
 import verilog_mutator
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
@@ -17,7 +18,7 @@ class PyVerilator:
     sim['a'] = 2
     sim['b'] = 3
     sim.eval()
-    sim = PyVerilator(
+    print('c = ' + sim['c'])
     """
 
     @classmethod
@@ -73,9 +74,11 @@ class PyVerilator:
         self.so_file = so_file
         self.auto_eval = auto_eval
         # initialize vcd variables
+        self.vcd_filename = None
         self.vcd_trace = None
         self.auto_tracing_mode = None
         self.curr_time = 0
+        self.vcd_reader = None
 
         self.lib = ctypes.CDLL(so_file)
         construct = self.lib.construct
@@ -223,9 +226,12 @@ class PyVerilator:
             self.add_to_vcd_trace()
 
     def start_vcd_trace(self, filename, auto_tracing = True):
+        if self.vcd_trace is not None:
+            raise ValueError('start_vcd_trace() called while VCD tracing is already active')
         start_vcd_trace = self.lib.start_vcd_trace
         start_vcd_trace.restype = ctypes.c_void_p
         self.vcd_trace = start_vcd_trace(self.model, ctypes.c_char_p(filename.encode('ascii')))
+        self.vcd_filename = filename
 
         if not auto_tracing:
             self.auto_tracing_mode = None
@@ -238,18 +244,37 @@ class PyVerilator:
         self.add_to_vcd_trace()
 
     def add_to_vcd_trace(self):
+        if self.vcd_trace is None:
+            raise ValueError('add_to_vcd_trace() requires VCD tracing to be active')
+        # do two steps so the most recent value in GTKWave is more obvious
+        self.curr_time += 5
         self.lib.add_to_vcd_trace(self.vcd_trace, self.curr_time)
-        self.curr_time += 1
+        self.curr_time += 5
+        self.lib.add_to_vcd_trace(self.vcd_trace, self.curr_time)
         # go ahead and flush on each vcd update
         self.flush_vcd_trace()
 
     def flush_vcd_trace(self):
+        if self.vcd_trace is None:
+            raise ValueError('flush_vcd_trace() requires VCD tracing to be active')
         self.lib.flush_vcd_trace(self.vcd_trace)
 
     def stop_vcd_trace(self):
+        if self.vcd_trace is None:
+            raise ValueError('stop_vcd_trace() requires VCD tracing to be active')
         self.lib.stop_vcd_trace(self.vcd_trace)
         self.vcd_trace = None
         self.auto_tracing_mode = None
+        self.vcd_filename = None
+
+    def get_internal_signal(self, signal_name):
+        if self.vcd_trace is None:
+            raise ValueError('get_internal_signal() requires VCD tracing to be active')
+        if self.vcd_reader is None:
+            self.vcd_reader = vcd.VCD(self.vcd_filename)
+        if self.vcd_reader.curr_time != self.curr_time:
+            self.vcd_reader.reload()
+        return self.vcd_reader.get_signal_value(signal_name)
 
 if __name__ == '__main__':
     test_verilog = '''
