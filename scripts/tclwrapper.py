@@ -134,15 +134,22 @@ class TCLWrapper:
 
         fetching_stdout = True
         fetching_stderr = True
-        while fetching_stdout or fetching_stderr:
-            if fetching_stdout:
-                stdout += self._process.stdout.read1(1).decode('ascii')
-            if fetching_stderr:
-                stderr += self._process.stderr.read1(1).decode('ascii')
-            if stdout.endswith(stdout_done_key):
-                fetching_stdout = False
-            if stderr.endswith(stderr_done_key):
-                fetching_stderr = False
+        try:
+            while fetching_stdout or fetching_stderr:
+                if fetching_stdout:
+                    stdout += self._process.stdout.read1(1).decode('ascii')
+                if fetching_stderr:
+                    stderr += self._process.stderr.read1(1).decode('ascii')
+                if stdout.endswith(stdout_done_key):
+                    fetching_stdout = False
+                if stderr.endswith(stderr_done_key):
+                    fetching_stderr = False
+        except KeyboardInterrupt as e:
+            print("KeyboardInterrupt raised while trying to read from stdout and stderr in TCLWrapper('%s')" % self.tcl_exe)
+            print('command = ' + repr(command))
+            print('stdout = ' + repr(stdout))
+            print('stderr = ' + repr(stderr))
+            raise e
 
         # remove start keys and done keys
         stdout = stdout[len(stdout_start_key):-len(stdout_done_key)]
