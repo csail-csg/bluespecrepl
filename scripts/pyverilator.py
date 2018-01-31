@@ -22,7 +22,7 @@ class PyVerilator:
     """
 
     @classmethod
-    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, auto_eval = True):
+    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, **kwargs):
         # get the module name from the verilog file name
         top_verilog_file_base = os.path.basename(top_verilog_file)
         verilog_module_name, extension = os.path.splitext(top_verilog_file_base)
@@ -64,9 +64,9 @@ class PyVerilator:
 
         so_file = os.path.join(build_dir, 'V' + verilog_module_name)
 
-        return PyVerilator(so_file, auto_eval)
+        return cls(so_file, **kwargs)
 
-    def __init__(self, so_file, auto_eval = True):
+    def __init__(self, so_file, *, auto_eval = True):
         # initialize lib and model first so if __init__ fails, __del__ will
         # not fail.
         self.lib = None

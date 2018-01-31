@@ -10,7 +10,7 @@ import jinja2
 import tclwrapper
 import warnings
 import verilog_mutator
-import pyverilator
+import pyverilatorbsv
 from tclutil import *
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
@@ -151,11 +151,13 @@ class BSVProject:
             rules = mutator.get_rules_in_scheduling_order()
 
         bsv_verilog_dir = os.path.join(os.environ['BLUESPECDIR'], 'Verilog')
-        return pyverilator.PyVerilator.build(
+        return pyverilatorbsv.PyVerilatorBSV.build(
                 verilog_file,
                 verilog_path = [verilator_dir, bsv_verilog_dir],
                 build_dir = verilator_dir,
-                rules = rules)
+                rules = rules,
+                module_name = self.top_module,
+                bsc_build_dir = self.build_dir)
 
     def clean(self):
         """Deletes output from project compilation."""
