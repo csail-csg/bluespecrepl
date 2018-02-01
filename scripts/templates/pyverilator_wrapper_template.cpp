@@ -15,6 +15,7 @@ extern const char* _pyverilator_outputs[];
 extern const uint32_t _pyverilator_output_widths[];
 extern const uint32_t _pyverilator_num_rules;
 extern const char* _pyverilator_rules[];
+extern const char* _pyverilator_json_data;
 // now initialize the variables
 const char* _pyverilator_module_name = "{{ top_module }}";
 const uint32_t _pyverilator_num_inputs = {{ inputs|length }};
@@ -45,6 +46,7 @@ const char* _pyverilator_rules[] = {
     "{{ name }}",
 {%- endfor -%}
 };
+const char* _pyverilator_json_data = {{ json_data|default('"null"') }};
 
 // function definitions
 // helper functions for basic verilator tasks

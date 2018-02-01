@@ -34,8 +34,14 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
 
     default_vcd_filename = 'gtkwave.vcd'
 
-    def __init__(self, so_file, module_name = None, bsc_build_dir = None, **kwargs):
+    @classmethod
+    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, **kwargs):
+        json_data = {'rules' : rules}
+        return super().build(top_verilog_file, verilog_path, build_dir, json_data, gen_only, **kwargs)
+
+    def __init__(self, so_file, module_name = None, bsc_build_dir = None, rules = [], **kwargs):
         super().__init__(so_file, **kwargs)
+        self.rules = self.json_data['rules']
         self.module_name = module_name
         self.bsc_build_dir = bsc_build_dir
         self.gtkwave_active = False

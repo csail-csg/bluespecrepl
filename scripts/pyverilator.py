@@ -3,6 +3,7 @@
 import ctypes
 import os
 import subprocess
+import json
 import jinja2
 import vcd
 import verilog_mutator
@@ -22,7 +23,7 @@ class PyVerilator:
     """
 
     @classmethod
-    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, **kwargs):
+    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', json_data = None, gen_only = False, **kwargs):
         # get the module name from the verilog file name
         top_verilog_file_base = os.path.basename(top_verilog_file)
         verilog_module_name, extension = os.path.splitext(top_verilog_file_base)
@@ -39,7 +40,7 @@ class PyVerilator:
             'top_module' : verilog_module_name,
             'inputs' : inputs,
             'outputs' : outputs,
-            'rules' : rules,
+            'json_data' : json.dumps(json.dumps( json_data ))
             })
         if not os.path.exists(build_dir):
             os.makedirs(build_dir)
@@ -85,7 +86,7 @@ class PyVerilator:
         construct.restype = ctypes.c_void_p
         self.model = construct()
 
-        # get inputs, outputs, and rules
+        # get inputs, outputs, and json_data
         self._read_embedded_data()
 
         self._sim_init()
@@ -113,12 +114,9 @@ class PyVerilator:
         for i in range(num_outputs):
             self.outputs.append((output_names[i].decode('ascii'), output_widths[i]))
 
-        # rules
-        num_rules = ctypes.c_uint32.in_dll(self.lib, '_pyverilator_num_rules').value
-        rule_names = (ctypes.c_char_p * num_rules).in_dll(self.lib, '_pyverilator_rules')
-        self.rules = []
-        for i in range(num_rules):
-            self.rules.append(rule_names[i].decode('ascii'))
+        # json_data
+        json_string = ctypes.c_char_p.in_dll(self.lib, '_pyverilator_json_data').value.decode('ascii')
+        self.json_data = json.loads(json_string)
 
     def _read(self, port_name):
         port_width = None

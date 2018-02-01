@@ -15,6 +15,7 @@ sim.auto_eval = True
 print('List of inputs:\n  ' + '\n  '.join([str(x) for x in sim.inputs]))
 print('List of outputs:\n  ' + '\n  '.join([str(x) for x in sim.outputs]))
 print('List of rules:\n  ' + '\n  '.join(sim.rules))
+print('Json data:\n  ' + str(sim.json_data))
 
 # code that belongs somewhere else (probably pyverilator or some class that
 # extends it)
