@@ -94,8 +94,9 @@ class BSVProject:
 
     def get_sim_exe_out_arg(self):
         """Returns formatted bsc argument for the sim exe."""
-        if not os.path.exists(os.path.dirname(self.sim_exe)):
-            os.makedirs(os.path.dirname(self.sim_exe))
+        dirname = os.path.dirname(self.sim_exe)
+        if dirname and not os.path.exists(dirname):
+            os.makedirs(dirname)
         return ['-o', self.sim_exe]
 
     # compilation functions
@@ -121,7 +122,7 @@ class BSVProject:
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
             raise Exception('Bluespec Compiler failed compilation')
-        bsc_command = ['bsc', '-sim'] + self.bsc_options + extra_bsc_args + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + ['-e', self.top_module]
+        bsc_command = ['bsc', '-sim'] + self.bsc_options + extra_bsc_args + self.get_dir_args(sim_dir = out_folder) + self.get_path_arg() + self.get_sim_exe_out_arg() + ['-e', self.top_module]
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
             raise Exception('Bluespec Compiler failed compilation')
