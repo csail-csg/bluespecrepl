@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import random
 import bluetcl
 import pyverilator
 
@@ -88,4 +89,79 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         if self.gtkwave_active:
             raise ValueError('stop_vcd_trace() requires GTKWave to be stopped using stop_gtkwave()')
         super().stop_vcd_trace()
+
+    ### Repl functions
+    def set_fire(self, rules_to_fire):
+        """Sets the BLOCK_FIRE signal to one for every rule that is not in rules_to_fire."""
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        new_block_fire = -1
+        for rule in rules_to_fire:
+            index = self.rules.index(rule)
+            new_block_fire = new_block_fire & ~(1 << index)
+        self['BLOCK_FIRE'] = new_block_fire
+
+    def run_bsc_schedule(self, n, print_fired_rules = False):
+        """Do n steps of the design with the scheduler created by the Bluespec compiler."""
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        self['BLOCK_FIRE'] = 0
+        for i in range(n):
+            self.step(print_fired_rules)
+
+    def list_can_fire(self):
+        """List the rules with CAN_FIRE = 1"""
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        can_fire_rules = []
+        can_fire_bits = self['CAN_FIRE']
+        for i in range(len(self.rules)):
+            if ((can_fire_bits >> i) & 1) == 1:
+                can_fire_rules.append(self.rules[i])
+        return can_fire_rules
+
+    def list_will_fire(self):
+        """List the rules with WILL_FIRE = 1"""
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        will_fire_rules = []
+        will_fire_bits = self['WILL_FIRE']
+        for i in range(len(self.rules)):
+            if ((will_fire_bits >> i) & 1) == 1:
+                will_fire_rules.append(self.rules[i])
+        return will_fire_rules
+
+    def run_random_schedule(self, n, print_fired_rules = False):
+        """Do n steps of the design, where rules are picked to fire at random."""
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        for i in range(n):
+            chosen = random.choice(self.list_can_fire())
+            self.set_fire([chosen])
+            self.step(print_fired_rules)
+
+    def run_until_predicate(self, predicate, print_fired_rules = False):
+        """
+        Run until the predicate is true
+
+        example:
+        a.run_until_predicate((lambda x: True if 'rule' in x.list_will_fire() else False))
+        """
+        if 'BLOCK_FIRE' not in self:
+            raise ValueError('This function requires scheduling control in the Verilog')
+        n = 0
+        self.setfire(self.listrules)
+        while not predicate(self):
+            self.step(print_fired_rules)
+            n += 1
+        print("Predicate encountered after %d steps" % n)
+
+    def step(self, print_fired_rules = False):
+        self.eval()
+        if (print_fired_rules):
+            print(self.list_will_fire())
+        self['CLK'] = 0
+        self.eval()
+        self['CLK'] = 1
+        self.eval()
 
