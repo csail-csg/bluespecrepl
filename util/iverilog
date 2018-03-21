@@ -3,10 +3,12 @@ import sys
 import subprocess
 
 try:
-  if(sys.argv[-2] == "-o"):
-    subprocess.call('verilator '+' '.join(sys.argv[1:-2])+"> "+sys.argv[-1],shell=True)
-  else:
-    subprocess.call('verilator '+' '.join(sys.argv[1:]),shell=True)
+  posO = sys.argv.index('-o')
+  print(posO)
+  toCall = 'verilator '+' '.join(sys.argv[1:posO]) + ' ' + ' '.join(sys.argv[posO+2:]) +" > "+sys.argv[posO+1]
+  print(toCall)
+  subprocess.call(toCall,shell=True)
 except:
+  print(sys.argv)
   subprocess.call('verilator '+' '.join(sys.argv[1:]),shell=True)
 print(sys.argv)
