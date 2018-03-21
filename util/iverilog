@@ -2,13 +2,13 @@
 import sys
 import subprocess
 
+debug=False
 try:
   posO = sys.argv.index('-o')
-  print(posO)
+  if (debug): print(posO)
   toCall = 'verilator '+' '.join(sys.argv[1:posO]) + ' ' + ' '.join(sys.argv[posO+2:]) +" > "+sys.argv[posO+1]
-  print(toCall)
+  if (debug): print(toCall)
   subprocess.call(toCall,shell=True)
 except:
-  print(sys.argv)
+  if (debug): print(sys.argv)
   subprocess.call('verilator '+' '.join(sys.argv[1:]),shell=True)
-print(sys.argv)
