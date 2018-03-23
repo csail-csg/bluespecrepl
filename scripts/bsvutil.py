@@ -24,7 +24,6 @@ def add_line_macro(bsv_code, file_name = None, line_number = None):
     """
 
     frame = inspect.stack()[1][0]
-    print(str(frame))
     try:
         if not file_name:
             file_name = inspect.getframeinfo(frame).filename
