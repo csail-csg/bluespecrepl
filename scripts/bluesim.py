@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import warnings
 import bluetcl
 
 def parse_bsv_hex_literal(value_string):
@@ -66,7 +67,8 @@ class Bluesim:
         # check low_index and high_index:
         if high_index is not None and low_index is None:
             raise ValueError('high_index should not be defined without low_index')
-        
+
+        warnings.warn("Don't use this for non-registers")
         for obj_type in self.objects:
             if signal_name in self.objects[obj_type]:
                 # check for 'module range(0:7)'
