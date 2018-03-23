@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import tclwrapper
+import bluespecrepl.tclwrapper as tclwrapper
 
 class Virtual:
     # { class : { field : is_array }}

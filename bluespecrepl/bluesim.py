@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import warnings
-import bluetcl
+import bluespecrepl.bluetcl as bluetcl
 
 def parse_bsv_hex_literal(value_string):
     split_value_string = value_string.split('h')

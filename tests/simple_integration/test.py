@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import sys
-sys.path.append("../../scripts")
-import bsvproject
+try:
+    import bluespecrepl.bsvproject as bsvproject
+except Exception as e:
+    print('ERROR: Unable to import bluespecrepl.bsvproject')
+    raise e
 
 proj = bsvproject.BSVProject('SimpleIntegration.bsv', 'mkSimpleIntegration')
 sim = proj.gen_python_repl(scheduling_control = True)

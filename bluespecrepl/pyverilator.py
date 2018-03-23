@@ -5,8 +5,8 @@ import os
 import subprocess
 import json
 import jinja2
-import vcd
-import verilog_mutator
+import bluespecrepl.vcd as vcd
+import bluespecrepl.verilog_mutator as verilog_mutator
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 _jinja2_env = jinja2.Environment(loader = jinja2.FileSystemLoader(_template_path))

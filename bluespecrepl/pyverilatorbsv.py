@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import random
-import bluetcl
-import pyverilator
+import bluespecrepl.bluetcl as bluetcl
+import bluespecrepl.pyverilator as pyverilator
 
 class BSVInterfaceMethod:
     def __init__(self, sim, *args, ready = None, enable = None, output = None):

@@ -7,7 +7,7 @@ import string
 import os
 import sys
 import warnings
-from tclutil import *
+from bluespecrepl.tclutil import *
 
 class TCLWrapperException(Exception):
     """Base class for TCLWrapper exceptions."""

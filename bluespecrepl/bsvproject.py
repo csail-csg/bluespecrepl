@@ -7,11 +7,11 @@ import glob
 import subprocess
 import shutil
 import jinja2
-import tclwrapper
 import warnings
-import verilog_mutator
-import pyverilatorbsv
-from tclutil import *
+import bluespecrepl.tclwrapper as tclwrapper
+import bluespecrepl.verilog_mutator as verilog_mutator
+import bluespecrepl.pyverilatorbsv as pyverilatorbsv
+from bluespecrepl.tclutil import *
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 _jinja2_env = jinja2.Environment(loader = jinja2.FileSystemLoader(_template_path))

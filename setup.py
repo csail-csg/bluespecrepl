@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='BluespecREPL',
-    version='0.0.0pre-alpha',
+    version='0.0.0.dev1',
     description='Python-based REPL interface for debugging Bluespec System Verilog',
     # long_description=long_description,
     url='https://github.mit.edu/acwright/bluespec-repl',
