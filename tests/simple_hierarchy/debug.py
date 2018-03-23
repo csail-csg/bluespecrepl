@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-import sys
-sys.path.append("../../scripts")
-from verilator_wrapper import VerilatorWrapper
+from bluespecrepl.verilator_wrapper import VerilatorWrapper
 
 a = VerilatorWrapper('obj_dir/VmkSimpleHierarchy')
 

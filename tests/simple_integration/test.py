@@ -2,7 +2,7 @@
 
 import sys
 try:
-    import bluespecrepl.bsvproject as bsvproject
+    from bluespecrepl import bsvproject
 except Exception as e:
     print('ERROR: Unable to import bluespecrepl.bsvproject')
     raise e

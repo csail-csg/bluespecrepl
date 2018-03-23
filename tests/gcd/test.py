@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-import bluespecrepl.bsvproject as bsvproject
-import bluespecrepl.tclwrapper as tclwrapper
+from bluespecrepl import bsvproject, tclwrapper
 
 proj = bsvproject.BSVProject('GCD.bsv', 'mkGCD')
 sim = proj.gen_python_repl(scheduling_control = True)
