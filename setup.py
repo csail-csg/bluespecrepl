@@ -29,6 +29,7 @@ setup(
     ],
     keywords='Bluespec hardware repl development',
     packages=find_packages(exclude=['tests', 'util']),
+    include_package_data=True,
     install_requires=[
         'Jinja2', # Jinja2 (2.10)
         'pyverilog', #pyverilog (1.1.1)
