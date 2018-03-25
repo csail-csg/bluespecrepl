@@ -185,7 +185,7 @@ class BSVProject:
         os.remove(self.sim_exe)
 
     # import/export methods
-    def import_bspec_project_file(filename):
+    def import_bspec_project_file(self, filename):
         """Import project settings from a .bspec file"""
         params = {}
         with open(filename) as f:
