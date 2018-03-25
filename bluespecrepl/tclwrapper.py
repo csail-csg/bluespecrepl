@@ -65,7 +65,6 @@ class TCLWrapper:
     def start(self):
         """Start the tcl background process."""
         if self._process:
-            # TODO: use more descriptive exception
             raise TCLWrapperInstanceError('tcl instance already running.')
         self._process = subprocess.Popen(
             [self.tcl_exe],
