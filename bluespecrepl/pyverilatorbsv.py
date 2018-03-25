@@ -156,12 +156,13 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             n += 1
         print("Predicate encountered after %d steps" % n)
 
-    def step(self, print_fired_rules = False):
-        self.eval()
-        if (print_fired_rules):
-            print(self.list_will_fire())
-        self['CLK'] = 0
-        self.eval()
-        self['CLK'] = 1
-        self.eval()
+    def step(self, n = 1, print_fired_rules = False):
+        for i in range(n):
+            self.eval()
+            if (print_fired_rules):
+                print(self.list_will_fire())
+            self['CLK'] = 0
+            self.eval()
+            self['CLK'] = 1
+            self.eval()
 
