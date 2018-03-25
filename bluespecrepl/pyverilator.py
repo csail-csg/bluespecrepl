@@ -273,38 +273,3 @@ class PyVerilator:
         if self.vcd_reader.curr_time != self.curr_time:
             self.vcd_reader.reload()
         return self.vcd_reader.get_signal_value(signal_name)
-
-if __name__ == '__main__':
-    test_verilog = '''
-        module width_test (
-                input_a,
-                input_b,
-                input_c,
-                input_d,
-                input_e,
-                output_concat);
-            input [7:0] input_a;
-            input [15:0] input_b;
-            input [31:0] input_c;
-            input [63:0] input_d;
-            input [127:0] input_e;
-            output [247:0] output_concat;
-            assign output_concat = {input_a, input_b, input_c, input_d, input_e};
-        endmodule'''
-    # make and move to test directory
-    if not os.path.exists('test_pyverilator'):
-        os.makedirs('test_pyverilator')
-    os.chdir('test_pyverilator')
-    # write test verilog file
-    with open('width_test.v', 'w') as f:
-        f.write(test_verilog)
-    pyverilator = PyVerilator.build('width_test.v')
-
-    pyverilator.start_vcd_trace('test.vcd')
-    pyverilator['input_a'] = 0xaa
-    pyverilator['input_b'] = 0x1bbb
-    pyverilator['input_c'] = 0x3ccccccc
-    pyverilator['input_d'] = 0x7ddddddddddddddd
-    pyverilator['input_e'] = 0xfeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-    print('output_concat = ' + hex(pyverilator['output_concat']))
-    pyverilator.stop_vcd_trace()
