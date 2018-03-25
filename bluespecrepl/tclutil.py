@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import re
 import tkinter as tk
 
 # use tkinter because it already has some functions to parse tcl output
@@ -27,10 +26,3 @@ def nested_list_to_tclstring(nested_list):
         else:
             items.append('{' + nested_list_to_tclstring(item) + '}')
     return ' '.join(items)
-
-if __name__ == '__main__':
-    tclstring_repr = 'a b {c {d e} f} {g h}'
-    list_repr = ['a', 'b', ['c', ['d', 'e'], 'f'], ['g', 'h']]
-    print(str(tclstring_repr))
-    print(str(tclstring_to_nested_list(tclstring_repr)))
-    print(str(nested_list_to_tclstring(tclstring_to_nested_list(tclstring_repr))))
