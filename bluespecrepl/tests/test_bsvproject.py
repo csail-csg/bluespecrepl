@@ -9,8 +9,6 @@ class TestBSVProject(unittest.TestCase):
         self.old_dir = os.getcwd()
         self.test_dir = tempfile.mkdtemp()
         os.chdir(self.test_dir)
-        print('TestBSVProject.setUp: old_dir = ' + self.old_dir)
-        print('TestBSVProject.setUp: test_dir = ' + self.test_dir)
 
     def tearDown(self):
         os.chdir(self.old_dir)
