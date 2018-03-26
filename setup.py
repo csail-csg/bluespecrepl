@@ -28,7 +28,7 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
     keywords='Bluespec hardware repl development',
-    packages=find_packages(exclude=['tests', 'util']),
+    packages=find_packages(exclude=['examples', 'tests', 'util']),
     include_package_data=True,
     install_requires=[
         'Jinja2', # Jinja2 (2.10)
