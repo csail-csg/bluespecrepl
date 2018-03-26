@@ -6,11 +6,26 @@ import bluespecrepl.pyverilator as pyverilator
 
 class BSVInterfaceMethod:
     def __init__(self, sim, *args, ready = None, enable = None, output = None):
+        if ready is None:
+            raise ValueError('BSVInterfaceMethod requires ready signal')
         self.sim = sim
         self.args = args
         self.ready = ready
         self.enable = enable
         self.output = output
+        self.__doc__ = 'Interface method %s.\n\n' % ready[4:]
+        self.__doc__ += 'Arguments:\n'
+        if args:
+            for arg in args:
+                self.__doc__ += '    %s\n' % arg
+        else:
+            self.__doc__ += '    (none)\n'
+        if output:
+            self.__doc__ += 'Output Signal:\n    %s\n' % output
+        if ready:
+            self.__doc__ += 'Ready Signal:\n    %s\n' % ready
+        if enable:
+            self.__doc__ += 'Enable Signal:\n    %s\n' % enable
 
     def is_ready(self):
         if self.ready:
@@ -46,6 +61,31 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self.module_name = module_name
         self.bsc_build_dir = bsc_build_dir
         self.gtkwave_active = False
+        self._autodetect_interface_methods()
+
+    def _autodetect_interface_methods(self):
+        # look for ready outputs to get all the interface method names
+        method_names = []
+        for output_name, width in self.outputs:
+            if output_name.startswith('RDY_'):
+                method_names.append(output_name[4:])
+        # now populate the signals of each interface method
+        for method_name in method_names:
+            # initialize method signals
+            method_inputs = []
+            method_output = None
+            enable_signal = None
+            ready_signal = 'RDY_' + method_name
+            for name, width in self.outputs:
+                if name == method_name:
+                    method_output = name
+            for name, width in self.inputs:
+                if name == ('EN_' + method_name):
+                    enable_signal = name
+                if name.startswith(method_name + '_'):
+                    method_inputs.append(name)
+            method = BSVInterfaceMethod(self, *method_inputs, ready = ready_signal, enable = enable_signal, output = method_output)
+            setattr(self, method_name, method)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:
