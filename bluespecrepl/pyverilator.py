@@ -24,6 +24,8 @@ class PyVerilator:
 
     @classmethod
     def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', json_data = None, gen_only = False, **kwargs):
+        """Generate and build the Verilator model and return the PyVerilator instance."""
+
         # get the module name from the verilog file name
         top_verilog_file_base = os.path.basename(top_verilog_file)
         verilog_module_name, extension = os.path.splitext(top_verilog_file_base)
