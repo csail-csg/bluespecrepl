@@ -101,25 +101,25 @@ class BSVRule:
         if not self.get_can_fire():
             raise Exception('The guard for this rule is not true')
 
-        old_block_fire = sim['BLOCK_FIRE']
-        old_force_fire = sim['FORCE_FIRE']
+        old_block_fire = self.sim['BLOCK_FIRE']
+        old_force_fire = self.sim['FORCE_FIRE']
 
-        sim['BLOCK_FIRE'] = ~(1 << self.index)
-        sim['FORCE_FIRE'] = 0
+        self.sim['BLOCK_FIRE'] = ~(1 << self.index)
+        self.sim['FORCE_FIRE'] = 0
 
         if not self.get_can_fire():
-            sim['BLOCK_FIRE'] = old_block_fire
-            sim['FORCE_FIRE'] = old_force_fire
+            self.sim['BLOCK_FIRE'] = old_block_fire
+            self.sim['FORCE_FIRE'] = old_force_fire
             raise Exception('The guard for this rule is not true if all other rules are blocked. This can happen if this rule depends on another rule firing in the same cycle.')
         if not self.get_will_fire():
-            sim['BLOCK_FIRE'] = old_block_fire
-            sim['FORCE_FIRE'] = old_force_fire
+            self.sim['BLOCK_FIRE'] = old_block_fire
+            self.sim['FORCE_FIRE'] = old_force_fire
             raise Exception('This rule is blocked even though all other rules are blocked. This should not be possible.')
 
-        sim.step(1)
+        self.sim.step(1)
 
-        sim['BLOCK_FIRE'] = old_block_fire
-        sim['FORCE_FIRE'] = old_force_fire
+        self.sim['BLOCK_FIRE'] = old_block_fire
+        self.sim['FORCE_FIRE'] = old_force_fire
 
     def __str__(self):
         return 'rule ' + self.name
@@ -209,6 +209,9 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                         ret += '    (CAN_FIRE is false)'
                 return ret
         self.rules = Rules(**rule_dict)
+
+    def __repr__(self):
+        return repr(self.interface) + '\n' + repr(self.rules)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:
