@@ -150,6 +150,7 @@ class VerilogMutator:
                     if item.width is None:
                         inputs.append((item.name, 1))
                     else:
+                        # TODO: This line doesn't work if either of the bounds is not just a number (e.g. msb = 7-1)
                         inputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
         return inputs
 
@@ -163,6 +164,7 @@ class VerilogMutator:
                     if item.width is None:
                         outputs.append((item.name, 1))
                     else:
+                        # TODO: This line doesn't work if either of the bounds is not just a number (e.g. msb = 7-1)
                         outputs.append((item.name, int(item.width.msb.value) - int(item.width.lsb.value) + 1))
         return outputs
 
