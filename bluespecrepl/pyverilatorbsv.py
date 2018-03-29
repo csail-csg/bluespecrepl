@@ -7,8 +7,8 @@ import bluespecrepl.pyverilator as pyverilator
 
 class BSVInterfaceMethod:
     def __init__(self, sim, *args, ready = None, enable = None, output = None):
-        if ready is None:
-            raise ValueError('BSVInterfaceMethod requires ready signal')
+        if ready is None or not ready.startswith('RDY_'):
+            raise ValueError('BSVInterfaceMethod requires a ready signal that starts with RDY_')
         self.sim = sim
         self.args = args
         self.ready = ready
@@ -47,6 +47,16 @@ class BSVInterfaceMethod:
         if self.output:
             ret = self.sim[self.output]
         return ret
+
+    def __str__(self):
+        method_name = self.ready[4:] # drop RDY_
+        arg_names = [arg[len(method_name)+1:] for arg in self.args]
+        return method_name + '(' + ', '.join(arg_names) + ')'
+
+    def __repr__(self):
+        method_name = self.ready[4:] # drop RDY_
+        arg_names = [arg[len(method_name)+1:] for arg in self.args]
+        return '<' + str(self) + ('' if self.is_ready() else ' NOT_READY') + '>'
 
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
@@ -92,7 +102,14 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         # now fill in a named tuple containing all the interface methods
         # note: using a named tuple here adds some contraints to interface
         # method names
-        Interface = namedtuple('Interface', method_names)
+        class Interface(namedtuple('Interface', method_names)):
+            def __repr__(self):
+                ret = 'interface:'
+                for i in self:
+                    ret += '\n    ' + str(i)
+                    if not i.is_ready():
+                        ret += '    NOT_READY'
+                return ret
         self.interface = Interface(**methods)
 
     def start_gtkwave(self):
