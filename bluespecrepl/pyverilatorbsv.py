@@ -145,10 +145,10 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self.module_name = module_name
         self.bsc_build_dir = bsc_build_dir
         self.gtkwave_active = False
-        self._autodetect_interface_methods()
+        self._populate_interface()
         self._populate_rules()
 
-    def _autodetect_interface_methods(self):
+    def _populate_interface(self):
         # look for ready outputs to get all the interface method names
         method_names = []
         for output_name, width in self.outputs:
