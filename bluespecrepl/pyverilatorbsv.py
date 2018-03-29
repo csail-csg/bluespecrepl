@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from collections import namedtuple
 import random
 import bluespecrepl.bluetcl as bluetcl
 import bluespecrepl.pyverilator as pyverilator
@@ -42,8 +43,10 @@ class BSVInterfaceMethod:
             self.sim[self.args[i]] = call_args[i]
         if self.enable:
             self.sim[self.enable] = 1
+        ret = None
         if self.output:
-            return self.sim[self.output]
+            ret = self.sim[self.output]
+        return ret
 
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
@@ -70,6 +73,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             if output_name.startswith('RDY_'):
                 method_names.append(output_name[4:])
         # now populate the signals of each interface method
+        methods = {}
         for method_name in method_names:
             # initialize method signals
             method_inputs = []
@@ -84,8 +88,12 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     enable_signal = name
                 if name.startswith(method_name + '_'):
                     method_inputs.append(name)
-            method = BSVInterfaceMethod(self, *method_inputs, ready = ready_signal, enable = enable_signal, output = method_output)
-            setattr(self, method_name, method)
+            methods[method_name] = BSVInterfaceMethod(self, *method_inputs, ready = ready_signal, enable = enable_signal, output = method_output)
+        # now fill in a named tuple containing all the interface methods
+        # note: using a named tuple here adds some contraints to interface
+        # method names
+        Interface = namedtuple('Interface', method_names)
+        self.interface = Interface(**methods)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:

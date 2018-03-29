@@ -62,25 +62,25 @@ sim.auto_eval = True
 sim.start_vcd_trace('gcd.vcd')
 
 # test
-while not sim.start.is_ready():
+while not sim.interface.start.is_ready():
     print('step until start.ready()')
     sim.step(1)
 
 print('start(105, 45)')
-sim.start(105, 45)
+sim.interface.start(105, 45)
 sim.step(1)
 sim['EN_start'] = 0
 
-while not sim.result_ready():
+while not sim.interface.result_ready():
     print('step until result_ready()')
     sim.step(1)
 
-x = sim.result()
+x = sim.interface.result()
 print('result = ' + str(x))
 sim.step(1)
 
 print('result_deq()')
-sim.result_deq()
+sim.interface.result_deq()
 
 sim.step(1)
 
