@@ -61,6 +61,74 @@ class BSVInterfaceMethod:
         arg_names = [arg[len(method_name)+1:] for arg in self.args]
         return '<' + str(self) + ('' if self.is_ready() else ' NOT_READY') + '>'
 
+class BSVRule:
+    def __init__(self, sim, name, index):
+        self.sim = sim
+        self.name = name
+        self.index = index
+        self.__doc__ = 'Rule %s.\n' % self.name
+
+    def _get_index_of(self, port_name):
+        return (self.sim[port_name] >> self.index) & 1
+
+    def _set_index_of(self, port_name, value):
+        if value == 0:
+            self.sim[port_name] &= ~(1 << self.index)
+        elif value == 1:
+            self.sim[port_name] |= 1 << self.index
+        else:
+            raise ValueError('value should be a 0 or a 1')
+
+    def get_can_fire(self):
+        return bool(self._get_index_of('CAN_FIRE'))
+
+    def get_will_fire(self):
+        return bool(self._get_index_of('WILL_FIRE'))
+
+    def get_force_fire(self):
+        return bool(self._get_index_of('FORCE_FIRE'))
+
+    def get_block_fire(self):
+        return bool(self._get_index_of('BLOCK_FIRE'))
+
+    def set_force_fire(self, value):
+        self._set_index_of('FORCE_FIRE', value)
+
+    def set_block_fire(self, value):
+        self._set_index_of('FORCE_FIRE', value)
+
+    def __call__(self, *call_args):
+        if not self.get_can_fire():
+            raise Exception('The guard for this rule is not true')
+
+        old_block_fire = sim['BLOCK_FIRE']
+        old_force_fire = sim['FORCE_FIRE']
+
+        sim['BLOCK_FIRE'] = ~(1 << self.index)
+        sim['FORCE_FIRE'] = 0
+
+        if not self.get_can_fire():
+            sim['BLOCK_FIRE'] = old_block_fire
+            sim['FORCE_FIRE'] = old_force_fire
+            raise Exception('The guard for this rule is not true if all other rules are blocked. This can happen if this rule depends on another rule firing in the same cycle.')
+        if not self.get_will_fire():
+            sim['BLOCK_FIRE'] = old_block_fire
+            sim['FORCE_FIRE'] = old_force_fire
+            raise Exception('This rule is blocked even though all other rules are blocked. This should not be possible.')
+
+        sim.step(1)
+
+        sim['BLOCK_FIRE'] = old_block_fire
+        sim['FORCE_FIRE'] = old_force_fire
+
+    def __str__(self):
+        return 'rule ' + self.name
+
+    def __repr__(self):
+        ret = '<' + str(self)
+
+        return '<' + str(self) + (' CAN_FIRE' if self.get_can_fire() else '') + (' WILL_FIRE' if self.get_will_fire() else '') + '>'
+
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
 
@@ -73,11 +141,12 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
 
     def __init__(self, so_file, module_name = None, bsc_build_dir = None, rules = [], **kwargs):
         super().__init__(so_file, **kwargs)
-        self.rules = self.json_data['rules']
+        self.rule_names = self.json_data['rules']
         self.module_name = module_name
         self.bsc_build_dir = bsc_build_dir
         self.gtkwave_active = False
         self._autodetect_interface_methods()
+        self._populate_rules()
 
     def _autodetect_interface_methods(self):
         # look for ready outputs to get all the interface method names
@@ -114,6 +183,32 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                         ret += '    NOT_READY'
                 return ret
         self.interface = Interface(**methods)
+
+    def _populate_rules(self):
+        rule_dict = {}
+        for i in range(len(self.rule_names)):
+            rule_dict[self.rule_names[i]] = BSVRule(self, self.rule_names[i], i)
+        class Rules(namedtuple('Rules', self.rule_names)):
+            def __repr__(self):
+                ret = 'rules:'
+                for i in self:
+                    ret += '\n    ' + str(i)
+                    if i.get_force_fire():
+                        ret += '    FORCE_FIRE'
+                        if not i.get_can_fire():
+                            ret += ' (CAN_FIRE is false)'
+                    elif i.get_block_fire():
+                        ret += '    BLOCK_FIRE'
+                        if i.get_can_fire():
+                            ret += ' (CAN_FIRE is true)'
+                    elif i.get_will_fire():
+                        ret += '    WILL_FIRE'
+                    elif i.get_can_fire():
+                        ret += '    CAN_FIRE (WILL_FIRE is false)'
+                    else:
+                        ret += '    (CAN_FIRE is false)'
+                return ret
+        self.rules = Rules(**rule_dict)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:
@@ -165,7 +260,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             raise ValueError('This function requires scheduling control in the Verilog')
         new_block_fire = -1
         for rule in rules_to_fire:
-            index = self.rules.index(rule)
+            index = self.rule_names.index(rule)
             new_block_fire = new_block_fire & ~(1 << index)
         self['BLOCK_FIRE'] = new_block_fire
 
@@ -183,9 +278,9 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             raise ValueError('This function requires scheduling control in the Verilog')
         can_fire_rules = []
         can_fire_bits = self['CAN_FIRE']
-        for i in range(len(self.rules)):
+        for i in range(len(self.rule_names)):
             if ((can_fire_bits >> i) & 1) == 1:
-                can_fire_rules.append(self.rules[i])
+                can_fire_rules.append(self.rule_names[i])
         return can_fire_rules
 
     def list_will_fire(self):
@@ -194,9 +289,9 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             raise ValueError('This function requires scheduling control in the Verilog')
         will_fire_rules = []
         will_fire_bits = self['WILL_FIRE']
-        for i in range(len(self.rules)):
+        for i in range(len(self.rule_names)):
             if ((will_fire_bits >> i) & 1) == 1:
-                will_fire_rules.append(self.rules[i])
+                will_fire_rules.append(self.rule_names[i])
         return will_fire_rules
 
     def run_random_schedule(self, n, print_fired_rules = False):
