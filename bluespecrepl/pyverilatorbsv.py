@@ -46,6 +46,9 @@ class BSVInterfaceMethod:
         ret = None
         if self.output:
             ret = self.sim[self.output]
+        if self.enable:
+            self.sim.step(1)
+            self.sim[self.enable] = 0
         return ret
 
     def __str__(self):

@@ -69,7 +69,6 @@ while not sim.interface.start.is_ready():
 print('start(105, 45)')
 sim.interface.start(105, 45)
 sim.step(1)
-sim['EN_start'] = 0
 
 while not sim.interface.result_ready():
     print('step until result_ready()')
