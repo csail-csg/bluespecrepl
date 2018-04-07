@@ -13,9 +13,9 @@ extern const uint32_t _pyverilator_input_widths[];
 extern const uint32_t _pyverilator_num_outputs;
 extern const char* _pyverilator_outputs[];
 extern const uint32_t _pyverilator_output_widths[];
-extern const uint32_t _pyverilator_num_signals;
-extern const char* _pyverilator_signals[];
-extern const uint32_t _pyverilator_signal_widths[];
+extern const uint32_t _pyverilator_num_internal_signals;
+extern const char* _pyverilator_internal_signals[];
+extern const uint32_t _pyverilator_internal_signal_widths[];
 extern const uint32_t _pyverilator_num_rules;
 extern const char* _pyverilator_rules[];
 extern const char* _pyverilator_json_data;
@@ -43,14 +43,14 @@ const uint32_t _pyverilator_output_widths[] = {
     {{ size }},
 {%- endfor -%}
 };
-const uint32_t _pyverilator_num_signals = {{ signals|length }};
-const char* _pyverilator_signals[] = {
-{%- for name, size in signals -%}
+const uint32_t _pyverilator_num_internal_signals = {{ internal_signals|length }};
+const char* _pyverilator_internal_signals[] = {
+{%- for name, size in internal_signals -%}
     "{{ name }}",
 {%- endfor -%}
 };
-const uint32_t _pyverilator_signal_widths[] = {
-{%- for name, size in signals -%}
+const uint32_t _pyverilator_internal_signal_widths[] = {
+{%- for name, size in internal_signals -%}
     {{ size }},
 {%- endfor -%}
 };
@@ -101,8 +101,8 @@ int stop_vcd_trace(VerilatedVcdC* tfp) {
     return 0;
 }
 
-// get input/output/signal values
-{% for ports in [outputs, inputs, signals] -%}
+// get input/output/internal_signal values
+{% for ports in [outputs, inputs, internal_signals] -%}
 {%- for name, size in ports -%}
 {%- if size > 64 -%}
 uint32_t get_{{ name }}({{ objtype }}* top, int word) {

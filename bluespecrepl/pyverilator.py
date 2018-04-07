@@ -52,7 +52,7 @@ class PyVerilator:
         subprocess.call(verilator_args)
 
         # get internal signals by parsing the generated verilator output
-        signals = []
+        internal_signals = []
         verilator_h_file = os.path.join(build_dir, 'V' + verilog_module_name + '.h')
         with open(verilator_h_file) as f:
             for line in f:
@@ -62,7 +62,7 @@ class PyVerilator:
                     if signal_name.startswith(verilog_module_name) and int(result.group(4)) == 0:
                         # this is an internal signal
                         signal_width = int(result.group(3)) - int(result.group(4)) + 1
-                        signals.append((signal_name, signal_width))
+                        internal_signals.append((signal_name, signal_width))
                         print('signal match: %s, %d' % (signal_name, signal_width))
 
         # generate the C++ wrapper file
@@ -70,7 +70,7 @@ class PyVerilator:
             'top_module' : verilog_module_name,
             'inputs' : inputs,
             'outputs' : outputs,
-            'signals' : signals,
+            'internal_signals' : internal_signals,
             'json_data' : json.dumps(json.dumps( json_data ))
             })
         with open(verilator_cpp_wrapper_path, 'w') as f:
@@ -107,7 +107,7 @@ class PyVerilator:
         construct.restype = ctypes.c_void_p
         self.model = construct()
 
-        # get inputs, outputs, signals, and json_data
+        # get inputs, outputs, internal_signals, and json_data
         self._read_embedded_data()
 
         self._sim_init()
@@ -135,13 +135,13 @@ class PyVerilator:
         for i in range(num_outputs):
             self.outputs.append((output_names[i].decode('ascii'), output_widths[i]))
 
-        # signals
-        num_signals = ctypes.c_uint32.in_dll(self.lib, '_pyverilator_num_signals').value
-        signal_names = (ctypes.c_char_p * num_signals).in_dll(self.lib, '_pyverilator_signals')
-        signal_widths = (ctypes.c_uint32 * num_signals).in_dll(self.lib, '_pyverilator_signal_widths')
-        self.signals = []
-        for i in range(num_signals):
-            self.signals.append((signal_names[i].decode('ascii'), signal_widths[i]))
+        # internal signals
+        num_internal_signals = ctypes.c_uint32.in_dll(self.lib, '_pyverilator_num_internal_signals').value
+        internal_signal_names = (ctypes.c_char_p * num_internal_signals).in_dll(self.lib, '_pyverilator_internal_signals')
+        internal_signal_widths = (ctypes.c_uint32 * num_internal_signals).in_dll(self.lib, '_pyverilator_internal_signal_widths')
+        self.internal_signals = []
+        for i in range(num_internal_signals):
+            self.internal_signals.append((internal_signal_names[i].decode('ascii'), internal_signal_widths[i]))
 
         # json_data
         json_string = ctypes.c_char_p.in_dll(self.lib, '_pyverilator_json_data').value.decode('ascii')
@@ -149,7 +149,7 @@ class PyVerilator:
 
     def _read(self, port_name):
         port_width = None
-        for name, width in self.inputs + self.outputs + self.signals:
+        for name, width in self.inputs + self.outputs + self.internal_signals:
             if port_name == name:
                 port_width = width
         if port_width is None:
@@ -242,7 +242,7 @@ class PyVerilator:
         self._write(signal_name, value)
 
     def __contains__(self, signal_name):
-        for name, _ in self.inputs + self.outputs + self.signals:
+        for name, _ in self.inputs + self.outputs + self.internal_signals:
             if name == signal_name:
                 return True
         return False

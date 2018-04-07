@@ -228,9 +228,11 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
     def _populate_internal(self):
         signal_names = []
         signal_dict = {}
-        for signal_name, signal_width in self.signals:
-            signal_names.append(signal_name)
-            signal_dict[signal_name] = BSVSignal(self, signal_name, signal_width)
+        for signal_name, signal_width in self.internal_signals:
+            # '__024' is from having a $ is the signal name
+            if 'CAN_FIRE_' not in signal_name and 'WILL_FIRE_' not in signal_name and '__024' not in signal_name:
+                signal_names.append(signal_name)
+                signal_dict[signal_name] = BSVSignal(self, signal_name, signal_width)
         signal_names.sort()
         class Internal(namedtuple('Internal', signal_names)):
             def __repr__(self):
