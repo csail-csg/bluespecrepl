@@ -5,6 +5,7 @@ import os
 import subprocess
 import json
 import jinja2
+import re
 import bluespecrepl.vcd as vcd
 import bluespecrepl.verilog_mutator as verilog_mutator
 
@@ -37,25 +38,43 @@ class PyVerilator:
         inputs = verilog.get_inputs()
         outputs = verilog.get_outputs()
 
-        # generate the C++ wrapper file
-        verilator_cpp_wrapper_code = _verilator_cpp_wrapper_template.render({
-            'top_module' : verilog_module_name,
-            'inputs' : inputs,
-            'outputs' : outputs,
-            'json_data' : json.dumps(json.dumps( json_data ))
-            })
+        # prepare the path for the C++ wrapper file
         if not os.path.exists(build_dir):
             os.makedirs(build_dir)
         verilator_cpp_wrapper_path = os.path.join(build_dir, 'pyverilator_wrapper.cpp')
-        with open(verilator_cpp_wrapper_path, 'w') as f:
-            f.write(verilator_cpp_wrapper_code)
 
         # call verilator executable to generate the verilator C++ files
         verilog_path_args = []
         for verilog_dir in verilog_path:
             verilog_path_args += ['-y', verilog_dir]
+        # tracing is required in order to see internal signals
         verilator_args = ['bash', 'verilator', '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--trace', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
         subprocess.call(verilator_args)
+
+        # get internal signals by parsing the generated verilator output
+        signals = []
+        verilator_h_file = os.path.join(build_dir, 'V' + verilog_module_name + '.h')
+        with open(verilator_h_file) as f:
+            for line in f:
+                result = re.search(r'(VL_SIG[^(]*)\(([^,]+),([0-9]+),([0-9]+)(?:,[0-9]+)?\);', line)
+                if result:
+                    signal_name = result.group(2)
+                    if signal_name.startswith(verilog_module_name) and int(result.group(4)) == 0:
+                        # this is an internal signal
+                        signal_width = int(result.group(3)) - int(result.group(4)) + 1
+                        signals.append((signal_name, signal_width))
+                        print('signal match: %s, %d' % (signal_name, signal_width))
+
+        # generate the C++ wrapper file
+        verilator_cpp_wrapper_code = _verilator_cpp_wrapper_template.render({
+            'top_module' : verilog_module_name,
+            'inputs' : inputs,
+            'outputs' : outputs,
+            'signals' : signals,
+            'json_data' : json.dumps(json.dumps( json_data ))
+            })
+        with open(verilator_cpp_wrapper_path, 'w') as f:
+            f.write(verilator_cpp_wrapper_code)
 
         # if only generating verilator C++ files, stop here
         if gen_only:
@@ -88,7 +107,7 @@ class PyVerilator:
         construct.restype = ctypes.c_void_p
         self.model = construct()
 
-        # get inputs, outputs, and json_data
+        # get inputs, outputs, signals, and json_data
         self._read_embedded_data()
 
         self._sim_init()
@@ -116,13 +135,21 @@ class PyVerilator:
         for i in range(num_outputs):
             self.outputs.append((output_names[i].decode('ascii'), output_widths[i]))
 
+        # signals
+        num_signals = ctypes.c_uint32.in_dll(self.lib, '_pyverilator_num_signals').value
+        signal_names = (ctypes.c_char_p * num_signals).in_dll(self.lib, '_pyverilator_signals')
+        signal_widths = (ctypes.c_uint32 * num_signals).in_dll(self.lib, '_pyverilator_signal_widths')
+        self.signals = []
+        for i in range(num_signals):
+            self.signals.append((signal_names[i].decode('ascii'), signal_widths[i]))
+
         # json_data
         json_string = ctypes.c_char_p.in_dll(self.lib, '_pyverilator_json_data').value.decode('ascii')
         self.json_data = json.loads(json_string)
 
     def _read(self, port_name):
         port_width = None
-        for name, width in self.inputs + self.outputs:
+        for name, width in self.inputs + self.outputs + self.signals:
             if port_name == name:
                 port_width = width
         if port_width is None:
@@ -215,7 +242,7 @@ class PyVerilator:
         self._write(signal_name, value)
 
     def __contains__(self, signal_name):
-        for name, _ in self.inputs + self.outputs:
+        for name, _ in self.inputs + self.outputs + self.signals:
             if name == signal_name:
                 return True
         return False
@@ -267,11 +294,20 @@ class PyVerilator:
         self.auto_tracing_mode = None
         self.vcd_filename = None
 
-    def get_internal_signal(self, signal_name):
+    def get_vcd_signal(self, signal_name):
         if self.vcd_trace is None:
-            raise ValueError('get_internal_signal() requires VCD tracing to be active')
+            raise ValueError('get_vcd_signal() requires VCD tracing to be active')
         if self.vcd_reader is None:
             self.vcd_reader = vcd.VCD(self.vcd_filename)
         if self.vcd_reader.curr_time != self.curr_time:
             self.vcd_reader.reload()
         return self.vcd_reader.get_signal_value(signal_name)
+
+    def get_vcd_signals(self):
+        if self.vcd_trace is None:
+            raise ValueError('get_vcd_signal() requires VCD tracing to be active')
+        if self.vcd_reader is None:
+            self.vcd_reader = vcd.VCD(self.vcd_filename)
+        if self.vcd_reader.curr_time != self.curr_time:
+            self.vcd_reader.reload()
+        return self.vcd_reader.get_signals()

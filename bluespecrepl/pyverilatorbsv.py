@@ -125,9 +125,23 @@ class BSVRule:
         return 'rule ' + self.name
 
     def __repr__(self):
-        ret = '<' + str(self)
-
         return '<' + str(self) + (' CAN_FIRE' if self.get_can_fire() else '') + (' WILL_FIRE' if self.get_will_fire() else '') + '>'
+
+class BSVSignal:
+    def __init__(self, sim, name, width):
+        self.sim = sim
+        self.name = name
+        self.width = width
+        self.__doc__ = 'Signal %s (%d bits wide).\n' % (self.name, self.width)
+
+    def get_value(self):
+        return self.sim[self.name]
+
+    def __str__(self):
+        return 'signal ' + self.name
+
+    def __repr__(self):
+        return 'signal ' + self.name + ' = ' + hex(self.sim[self.name])
 
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
@@ -147,6 +161,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self.gtkwave_active = False
         self._populate_interface()
         self._populate_rules()
+        self._populate_internal()
 
     def _populate_interface(self):
         # look for ready outputs to get all the interface method names
@@ -210,8 +225,23 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                 return ret
         self.rules = Rules(**rule_dict)
 
+    def _populate_internal(self):
+        signal_names = []
+        signal_dict = {}
+        for signal_name, signal_width in self.signals:
+            signal_names.append(signal_name)
+            signal_dict[signal_name] = BSVSignal(self, signal_name, signal_width)
+        signal_names.sort()
+        class Internal(namedtuple('Internal', signal_names)):
+            def __repr__(self):
+                ret = 'internal:'
+                for i in self:
+                    ret += '\n    ' + str(i) + ' = ' + hex(i.get_value())
+                return ret
+        self.internal = Internal(**signal_dict)
+
     def __repr__(self):
-        return repr(self.interface) + '\n' + repr(self.rules)
+        return repr(self.interface) + '\n' + repr(self.rules) + '\n' + repr(self.internal)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:
