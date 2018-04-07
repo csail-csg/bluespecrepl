@@ -128,20 +128,21 @@ class BSVRule:
         return '<' + str(self) + (' CAN_FIRE' if self.get_can_fire() else '') + (' WILL_FIRE' if self.get_will_fire() else '') + '>'
 
 class BSVSignal:
-    def __init__(self, sim, name, width):
+    def __init__(self, sim, short_name, full_name, width):
         self.sim = sim
-        self.name = name
+        self.short_name = short_name
+        self.full_name = full_name
         self.width = width
-        self.__doc__ = 'Signal %s (%d bits wide).\n' % (self.name, self.width)
+        self.__doc__ = 'Signal %s (%d bits wide).\n' % (self.short_name, self.width)
 
     def get_value(self):
-        return self.sim[self.name]
+        return self.sim[self.full_name]
 
     def __str__(self):
-        return 'signal ' + self.name
+        return 'signal ' + self.short_name
 
     def __repr__(self):
-        return 'signal ' + self.name + ' = ' + hex(self.sim[self.name])
+        return 'signal ' + self.short_name + ' = ' + hex(self.sim[self.full_name])
 
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
@@ -231,8 +232,9 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         for signal_name, signal_width in self.internal_signals:
             # '__024' is from having a $ is the signal name
             if 'CAN_FIRE_' not in signal_name and 'WILL_FIRE_' not in signal_name and '__024' not in signal_name:
-                signal_names.append(signal_name)
-                signal_dict[signal_name] = BSVSignal(self, signal_name, signal_width)
+                short_name = signal_name.split('__DOT__', 1)[1]
+                signal_names.append(short_name)
+                signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
         signal_names.sort()
         class Internal(namedtuple('Internal', signal_names)):
             def __repr__(self):
