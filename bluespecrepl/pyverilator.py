@@ -63,7 +63,6 @@ class PyVerilator:
                         # this is an internal signal
                         signal_width = int(result.group(3)) - int(result.group(4)) + 1
                         internal_signals.append((signal_name, signal_width))
-                        print('signal match: %s, %d' % (signal_name, signal_width))
 
         # generate the C++ wrapper file
         verilator_cpp_wrapper_code = _verilator_cpp_wrapper_template.render({
