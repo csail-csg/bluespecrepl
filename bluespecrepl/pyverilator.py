@@ -59,7 +59,7 @@ class PyVerilator:
                 result = re.search(r'(VL_SIG[^(]*)\(([^,]+),([0-9]+),([0-9]+)(?:,[0-9]+)?\);', line)
                 if result:
                     signal_name = result.group(2)
-                    if signal_name.startswith(verilog_module_name) and int(result.group(4)) == 0:
+                    if signal_name.startswith(verilog_module_name) and '[' not in signal_name and int(result.group(4)) == 0:
                         # this is an internal signal
                         signal_width = int(result.group(3)) - int(result.group(4)) + 1
                         internal_signals.append((signal_name, signal_width))
