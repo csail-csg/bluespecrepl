@@ -1,9 +1,29 @@
 #!/usr/bin/env python3
 
-from collections import namedtuple
 import random
 import bluespecrepl.bluetcl as bluetcl
 import bluespecrepl.pyverilator as pyverilator
+
+def mynamedtuple(name, item_names):
+    class mynamedtuple_internal:
+        _item_names = item_names
+        _item_dict = {}
+        def __init__(self, item_dict):
+            for item in item_dict:
+                self._item_dict[item] = item_dict[item]
+        def __setattr__(self, *args):
+            raise BaseException('setting items not allowed')
+        def __getattr__(self, arg):
+            return self._item_dict[arg]
+        def __repr__(self, arg):
+            ret = ''
+            for item_name in self._item_names:
+                ret += item_name + ': ' + __repr__(self._item_dict[item_name])
+            return ret
+        def __iter__(self):
+            for item in self._item_names:
+                yield self._item_dict[item]
+    return mynamedtuple_internal
 
 class BSVInterfaceMethod:
     def __init__(self, sim, *args, ready = None, enable = None, output = None):
@@ -190,7 +210,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         # now fill in a named tuple containing all the interface methods
         # note: using a named tuple here adds some contraints to interface
         # method names
-        class Interface(namedtuple('Interface', method_names)):
+        class Interface(mynamedtuple('Interface', method_names)):
             def __repr__(self):
                 ret = 'interface:'
                 for i in self:
@@ -198,13 +218,13 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     if not i.is_ready():
                         ret += '    NOT_READY'
                 return ret
-        self.interface = Interface(**methods)
+        self.interface = Interface(methods)
 
     def _populate_rules(self):
         rule_dict = {}
         for i in range(len(self.rule_names)):
             rule_dict[self.rule_names[i]] = BSVRule(self, self.rule_names[i], i)
-        class Rules(namedtuple('Rules', self.rule_names)):
+        class Rules(mynamedtuple('Rules', self.rule_names)):
             def __repr__(self):
                 ret = 'rules:'
                 for i in self:
@@ -224,7 +244,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     else:
                         ret += '    (CAN_FIRE is false)'
                 return ret
-        self.rules = Rules(**rule_dict)
+        self.rules = Rules(rule_dict)
 
     def _populate_internal(self):
         signal_names = []
@@ -239,13 +259,13 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     signal_names.append(short_name)
                     signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
         signal_names.sort()
-        class Internal(namedtuple('Internal', signal_names)):
+        class Internal(mynamedtuple('Internal', signal_names)):
             def __repr__(self):
                 ret = 'internal:'
                 for i in self:
                     ret += '\n    ' + str(i) + ' = ' + hex(i.get_value())
                 return ret
-        self.internal = Internal(**signal_dict)
+        self.internal = Internal(signal_dict)
 
     def __repr__(self):
         return repr(self.interface) + '\n' + repr(self.rules) + '\n' + repr(self.internal)
