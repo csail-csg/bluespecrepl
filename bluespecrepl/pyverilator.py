@@ -113,7 +113,9 @@ class PyVerilator:
 
     def __del__(self):
         if self.model is not None:
-            self.lib.destruct(self.model)
+            fn = self.lib.destruct
+            fn.argtypes = [ctypes.c_void_p]
+            fn(self.model)
         if self.lib is not None:
             del self.lib
 
