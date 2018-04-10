@@ -95,7 +95,7 @@ class BSVRule:
         self._set_index_of('FORCE_FIRE', value)
 
     def set_block_fire(self, value):
-        self._set_index_of('FORCE_FIRE', value)
+        self._set_index_of('BLOCK_FIRE', value)
 
     def __call__(self, *call_args):
         if not self.get_can_fire():
@@ -232,9 +232,12 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         for signal_name, signal_width in self.internal_signals:
             # '__024' is from having a $ is the signal name
             if 'CAN_FIRE_' not in signal_name and 'WILL_FIRE_' not in signal_name and '__024' not in signal_name:
+                # make sure short_name and final_name don't start with '_'
+                final_name = signal_name.split('__DOT__')[-1]
                 short_name = signal_name.split('__DOT__', 1)[1]
-                signal_names.append(short_name)
-                signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
+                if not short_name.startswith('_') and not final_name.startswith('_'):
+                    signal_names.append(short_name)
+                    signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
         signal_names.sort()
         class Internal(namedtuple('Internal', signal_names)):
             def __repr__(self):
