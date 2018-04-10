@@ -163,16 +163,19 @@ class PyVerilator:
 
     def _read_32(self, port_name):
         fn = getattr(self.lib, 'get_' + port_name)
+        fn.argtypes = [ctypes.c_void_p]
         fn.restype = ctypes.c_uint32
         return int(fn(self.model))
 
     def _read_64(self, port_name):
         fn = getattr(self.lib, 'get_' + port_name)
+        fn.argtypes = [ctypes.c_void_p]
         fn.restype = ctypes.c_uint64
         return int(fn(self.model))
 
     def _read_words(self, port_name, num_words):
         fn = getattr(self.lib, 'get_' + port_name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         fn.restype = ctypes.c_uint32
         words = [0] * num_words
         for i in range(num_words):
@@ -203,14 +206,17 @@ class PyVerilator:
 
     def _write_32(self, port_name, value):
         fn = getattr(self.lib, 'set_' + port_name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         fn( self.model, ctypes.c_uint32(value) )
 
     def _write_64(self, port_name, value):
         fn = getattr(self.lib, 'set_' + port_name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
         fn( self.model, ctypes.c_uint64(value) )
 
     def _write_words(self, port_name, num_words, value):
         fn = getattr(self.lib, 'set_' + port_name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint32]
         for i in range(num_words):
             word = ctypes.c_uint32(value >> (i * 32))
             fn( self.model, i, word )
@@ -247,7 +253,9 @@ class PyVerilator:
         return False
 
     def eval(self):
-        self.lib.eval(self.model)
+        fn = self.lib.eval
+        fn.argtypes = [ctypes.c_void_p]
+        fn(self.model)
         if self.auto_tracing_mode == 'eval':
             self.add_to_vcd_trace()
 
