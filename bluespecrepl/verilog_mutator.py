@@ -194,7 +194,25 @@ class VerilogMutator:
         instance_to_module = {x: y for x, y in self.get_submodules()}
         can_fires = []
         will_fires = []
+        # compute total number of bits
         total_num_bits = 0
+        for name in scheduling_order:
+            if name.startswith('RL_'):
+                total_num_bits += 1
+            elif name.startswith('MODULE_'):
+                instance_name = name[len('MODULE_'):]
+                instance = self.get_instance(instance_name)
+                module_name = instance_to_module[instance_name]
+                if num_rules_per_module is None:
+                    continue
+                if module_name not in num_rules_per_module:
+                    continue
+                num_submodule_rules = num_rules_per_module[module_name]
+                if num_submodule_rules == 0:
+                    continue
+                total_num_bits += num_submodule_rules
+        # now add the signals
+        curr_bit_index = 0
         for name in scheduling_order:
             if name.startswith('RL_'):
                 self.add_decls('BLOCK_FIRE_' + name, ast.Wire)
@@ -204,10 +222,13 @@ class VerilogMutator:
                 new_rhs = ast.Or(ast.Identifier('FORCE_FIRE_' + name), ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_' + name)), assign.right.var))
                 assign.right.var = new_rhs
                 # definition of BLOCK_FIRE_* and FORCE_FIRE_* signals from top-level BLOCK_FIRE and FORCE_FIRE
-                bit_index = total_num_bits
-                total_num_bits += 1
-                self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(bit_index), ast.IntConst(bit_index)))
-                self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(bit_index), ast.IntConst(bit_index)))
+                if total_num_bits == 1:
+                    self.add_assign('BLOCK_FIRE_' + name, ast.Identifier('BLOCK_FIRE'))
+                    self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
+                else:
+                    self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(curr_bit_index), ast.IntConst(curr_bit_index)))
+                    self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(curr_bit_index), ast.IntConst(curr_bit_index)))
+                curr_bit_index += 1
                 can_fires.append(ast.Identifier('CAN_FIRE_' + name))
                 will_fires.append(ast.Identifier('WILL_FIRE_' + name))
             elif name.startswith('MODULE_'):
@@ -227,11 +248,15 @@ class VerilogMutator:
                     # connection of all FIRE signals to the submodule
                     instance.portlist += (ast.PortArg(signal_type, ast.Identifier(signal_type + '_' + name)),)
                 # assignments of BLOCK_FIRE_* and FORCE_FIRE_* signals from top-level BLOCK_FIRE and FORCE_FIRE
-                lsb = total_num_bits
-                msb = total_num_bits + num_submodule_rules - 1
-                total_num_bits += num_submodule_rules
-                self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
-                self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
+                lsb = curr_bit_index
+                msb = curr_bit_index + num_submodule_rules - 1
+                curr_bit_index += num_submodule_rules
+                if total_num_bits == 1:
+                    self.add_assign('BLOCK_FIRE_' + name, ast.Identifier('BLOCK_FIRE'))
+                    self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
+                else:
+                    self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
+                    self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
                 can_fires.append(ast.Identifier('CAN_FIRE_' + name))
                 will_fires.append(ast.Identifier('WILL_FIRE_' + name))
             elif name.startswith('METH_'):
