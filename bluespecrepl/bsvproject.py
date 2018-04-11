@@ -182,7 +182,11 @@ class BSVProject:
             except OSError:
                 # ignore errors
                 pass
-        os.remove(self.sim_exe)
+        try:
+            os.remove(self.sim_exe)
+        except OSError:
+            # ignore errors
+            pass
 
     # import/export methods
     def import_bspec_project_file(self, filename):
