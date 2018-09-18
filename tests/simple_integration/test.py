@@ -12,7 +12,7 @@ sim = proj.gen_python_repl(scheduling_control = True)
 # set auto_eval, so if a signal is changed, run the eval() function
 sim.auto_eval = True
 
-print('List of rules:  \n' + '\n  '.join(sim.rules))
+print('List of rules:  \n' + '\n  '.join([str(x) for x in sim.rules]))
 
 def tick(n):
     for i in range(n):
@@ -24,7 +24,7 @@ tick(10)
 def display_by_rule(signal, val):
     print(signal)
     for i in range(len(sim.rules)):
-        print('    ' + signal + '_' + sim.rules[i] + ' = '+ str((val >> i) & 1))
+        print('    ' + signal + '_' + str(sim.rules[i]) + ' = '+ str((val >> i) & 1))
 
 display_by_rule('CAN_FIRE', sim['CAN_FIRE'])
 display_by_rule('WILL_FIRE', sim['WILL_FIRE'])

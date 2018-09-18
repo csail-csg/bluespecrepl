@@ -15,6 +15,8 @@ def mynamedtuple(name, item_names):
             raise BaseException('setting items not allowed')
         def __getattr__(self, arg):
             return self._item_dict[arg]
+        def __getitem__(self, index):
+            return self._item_dict[self._item_names[index]]
         def __repr__(self, arg):
             ret = ''
             for item_name in self._item_names:
@@ -23,6 +25,8 @@ def mynamedtuple(name, item_names):
         def __iter__(self):
             for item in self._item_names:
                 yield self._item_dict[item]
+        def __len__(self):
+            return len(self._item_names)
     return mynamedtuple_internal
 
 class BSVInterfaceMethod:
