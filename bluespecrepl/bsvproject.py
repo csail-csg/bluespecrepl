@@ -25,7 +25,8 @@ class BSVProject:
     *.bspec files. Projects can also be exported to *.bspec files.
 
     Each project has the following project configuration variables:
-    path -- list of directories containing BSV source files
+    bsv_path -- list of directories containing BSV source files
+    v_path -- list of directories containing Verilog source files
     build_dir -- output directory for .bo/.ba files
     sim_dir -- output directory for bluesim files (except the executable)
     verilog_dir -- output directory for verilog files
@@ -41,7 +42,7 @@ class BSVProject:
     # automatically add these to self.bsc_options in the __init__ function
     default_bsc_options = ['-aggressive-conditions', '-keep-fires']
 
-    def __init__(self, top_file = None, top_module = None, path = [], build_dir = 'build_dir', sim_dir = 'sim_dir', verilog_dir = 'verilog_dir', info_dir = 'info_dir', f_dir = '.', sim_exe = 'sim.out', bsc_options = [], rts_options = [], bspec_file = None):
+    def __init__(self, top_file = None, top_module = None, bsv_path = [], v_path = None, build_dir = 'build_dir', sim_dir = 'sim_dir', verilog_dir = 'verilog_dir', info_dir = 'info_dir', f_dir = '.', sim_exe = 'sim.out', bsc_options = [], rts_options = [], bspec_file = None):
         if bspec_file is not None:
             import_bspec_project_file(bspec_file)
         else:
@@ -51,7 +52,12 @@ class BSVProject:
             self.top_file = top_file
             self.top_module = top_module
             # Path
-            self.path = path
+            self.bsv_path = bsv_path
+            if v_path is not None:
+                self.v_path = v_path
+            else:
+                # default verilog directory
+                self.v_path = [ os.path.join( os.environ['BLUESPECDIR'], 'Verilog' ) ]
             # Directories
             self.build_dir = build_dir
             self.sim_dir = sim_dir
@@ -90,7 +96,7 @@ class BSVProject:
 
     def get_path_arg(self):
         """Returns formatted bsc arguments for the path."""
-        return ['-p', ':'.join([self.build_dir] + self.path + BSVProject.default_paths)]
+        return ['-p', ':'.join([self.build_dir] + self.bsv_path + BSVProject.default_paths)]
 
     def get_sim_exe_out_arg(self):
         """Returns formatted bsc argument for the sim exe."""
@@ -151,10 +157,9 @@ class BSVProject:
             mutator.write_verilog(verilog_file)
             rules = mutator.get_rules_in_scheduling_order()
 
-        bsv_verilog_dir = os.path.join(os.environ['BLUESPECDIR'], 'Verilog')
         return pyverilatorbsv.PyVerilatorBSV.build(
                 verilog_file,
-                verilog_path = [verilator_dir, bsv_verilog_dir],
+                verilog_path = [verilator_dir] + self.v_path,
                 build_dir = verilator_dir,
                 rules = rules,
                 module_name = self.top_module,
@@ -190,7 +195,9 @@ class BSVProject:
 
     # import/export methods
     def import_bspec_project_file(self, filename):
-        """Import project settings from a .bspec file"""
+        """Import project settings from a .bspec file.
+
+        This does not import v_path."""
         params = {}
         with open(filename) as f:
             lines = f.readlines()
@@ -201,7 +208,9 @@ class BSVProject:
         self.import_bspec_config_params(params)
 
     def export_bspec_project_file(self, filename):
-        """Export project settings to a .bspec file"""
+        """Export project settings to a .bspec file.
+
+        This does not export v_path."""
         params = self.export_bspec_config_params()
         # use jinja2 and the template in templates/template.bspec to create the project file
         bspec_project_text = _bspec_project_file_template.render(params)
@@ -209,10 +218,12 @@ class BSVProject:
             f.write(bspec_project_text)
 
     def import_bspec_config_params(self, params):
-        """Imports project settings from parameters defined in a *.bspec file"""
+        """Imports project settings from parameters defined in a *.bspec file.
+
+        This does not import v_path."""
         self.top_file = params['TOP_FILE']
         self.top_module = params['TOP_MODULE']
-        self.path = list(tclstring_to_list(params['PATHS']))
+        self.bsv_path = list(tclstring_to_list(params['PATHS']))
         self.build_dir = params['COMP_BDIR']
         self.sim_dir = params['COMP_SIMDIR']
         self.verilog_dir = params['COMP_VDIR']
@@ -226,17 +237,21 @@ class BSVProject:
                 self.bsc_options.append(opt)
         self.rts_options = params['COMP_RTS_OPTIONS'].split(' ')
 
-        # strip default path arguments from self.path
+        # strip default path arguments from self.bsv_path
         for path in BSVProject.default_paths:
-            if path in self.path:
-                self.path.remove(path)
+            if path in self.bsv_path:
+                self.bsv_path.remove(path)
+        # assume the default v_path
+        self.v_path = [ os.path.join( os.environ['BLUESPECDIR'], 'Verilog' ) ]
 
     def export_bspec_config_params(self):
-        """Exports project settings to a dict of *.bspec file parameters"""
+        """Exports project settings to a dict of *.bspec file parameters.
+
+        This does not export v_path."""
         params = {}
         params['TOP_FILE'] = self.top_file
         params['TOP_MODULE'] = self.top_module
-        params['PATHS'] = list_to_tclstring([self.build_dir] + self.path + BSVProject.default_paths)
+        params['PATHS'] = list_to_tclstring([self.build_dir] + self.bsv_path + BSVProject.default_paths)
         params['COMP_BDIR'] = self.build_dir
         params['COMP_SIMDIR'] = self.sim_dir
         params['COMP_VDIR'] = self.verilog_dir
