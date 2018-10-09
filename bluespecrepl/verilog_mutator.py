@@ -187,7 +187,7 @@ class VerilogMutator:
         scheduling_order = ['RL_' + x for x in self.get_rules_in_scheduling_order()] + ['MODULE_' + x for x, y in self.get_submodules()]
         return scheduling_order
 
-    def expose_internal_scheduling_signals(self, num_rules_per_module = None, scheduling_order = None):
+    def expose_internal_scheduling_signals(self, num_rules_per_module = None, scheduling_order = None, add_force_fire = False):
         # if schedule isn't provided, assume rules first then modules
         if scheduling_order is None:
             scheduling_order = ['RL_' + x for x in self.get_rules_in_scheduling_order()] + ['MODULE_' + x for x, y in self.get_submodules()]
@@ -216,18 +216,24 @@ class VerilogMutator:
         for name in scheduling_order:
             if name.startswith('RL_'):
                 self.add_decls('BLOCK_FIRE_' + name, ast.Wire)
-                self.add_decls('FORCE_FIRE_' + name, ast.Wire)
+                if add_force_fire:
+                    self.add_decls('FORCE_FIRE_' + name, ast.Wire)
                 # definition of BLOCK_FIRE and FORCE_FILE
                 assign = self.get_assign('WILL_FIRE_' + name)
-                new_rhs = ast.Or(ast.Identifier('FORCE_FIRE_' + name), ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_' + name)), assign.right.var))
+                if add_force_fire:
+                    new_rhs = ast.Or(ast.Identifier('FORCE_FIRE_' + name), ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_' + name)), assign.right.var))
+                else:
+                    new_rhs = ast.And(ast.Unot(ast.Identifier('BLOCK_FIRE_' + name)), assign.right.var)
                 assign.right.var = new_rhs
                 # definition of BLOCK_FIRE_* and FORCE_FIRE_* signals from top-level BLOCK_FIRE and FORCE_FIRE
                 if total_num_bits == 1:
                     self.add_assign('BLOCK_FIRE_' + name, ast.Identifier('BLOCK_FIRE'))
-                    self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
+                    if add_force_fire:
+                        self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
                 else:
                     self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(curr_bit_index), ast.IntConst(curr_bit_index)))
-                    self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(curr_bit_index), ast.IntConst(curr_bit_index)))
+                    if add_force_fire:
+                        self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(curr_bit_index), ast.IntConst(curr_bit_index)))
                 curr_bit_index += 1
                 can_fires.append(ast.Identifier('CAN_FIRE_' + name))
                 will_fires.append(ast.Identifier('WILL_FIRE_' + name))
@@ -243,6 +249,8 @@ class VerilogMutator:
                 if num_submodule_rules == 0:
                     continue
                 for signal_type in ['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE']:
+                    if signal_type == 'FORCE_FIRE' and not add_force_fire:
+                        continue
                     # declarations of all FIRE signals for the submodule
                     self.add_decls(signal_type + '_' + name, ast.Wire, width = num_submodule_rules)
                     # connection of all FIRE signals to the submodule
@@ -253,10 +261,12 @@ class VerilogMutator:
                 curr_bit_index += num_submodule_rules
                 if total_num_bits == 1:
                     self.add_assign('BLOCK_FIRE_' + name, ast.Identifier('BLOCK_FIRE'))
-                    self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
+                    if add_force_fire:
+                        self.add_assign('FORCE_FIRE_' + name, ast.Identifier('FORCE_FIRE'))
                 else:
                     self.add_assign('BLOCK_FIRE_' + name, ast.Partselect(ast.Identifier('BLOCK_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
-                    self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
+                    if add_force_fire:
+                        self.add_assign('FORCE_FIRE_' + name, ast.Partselect(ast.Identifier('FORCE_FIRE'), ast.IntConst(msb), ast.IntConst(lsb)))
                 can_fires.append(ast.Identifier('CAN_FIRE_' + name))
                 will_fires.append(ast.Identifier('WILL_FIRE_' + name))
             elif name.startswith('METH_'):
@@ -266,11 +276,14 @@ class VerilogMutator:
 
         if total_num_bits != 0:
             # new ports
-            self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE'])
+            self.add_ports(['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE'])
+            if add_force_fire:
+                self.add_ports(['FORCE_FIRE'])
             self.add_decls('CAN_FIRE', ast.Output, width = total_num_bits)
             self.add_decls('WILL_FIRE', ast.Output, width = total_num_bits)
             self.add_decls('BLOCK_FIRE', ast.Input, width = total_num_bits)
-            self.add_decls('FORCE_FIRE', ast.Input, width = total_num_bits)
+            if add_force_fire:
+                self.add_decls('FORCE_FIRE', ast.Input, width = total_num_bits)
             self.add_decls('CAN_FIRE', ast.Wire, width = total_num_bits)
             self.add_decls('WILL_FIRE', ast.Wire, width = total_num_bits)
             # connect CAN_FIRE and WILL_FIRE
