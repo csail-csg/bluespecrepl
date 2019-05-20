@@ -62,6 +62,13 @@ const char* _pyverilator_rules[] = {
 };
 const char* _pyverilator_json_data = {{ json_data|default('"null"') }};
 
+// this is required by verilator for verilog designs using $time
+// main_time is incremented in eval
+double main_time = 0;
+double sc_time_stamp() {
+    return main_time;
+}
+
 // function definitions
 // helper functions for basic verilator tasks
 extern "C" {
@@ -73,6 +80,7 @@ extern "C" {
 }
 int eval({{ objtype }}* top) {
     top->eval();
+    main_time++;
     return 0;
 }
 int destruct({{ objtype }}* top) {
