@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import shutil
 import subprocess
 import json
 import jinja2
@@ -54,8 +55,15 @@ class PyVerilator:
         verilog_path_args = []
         for verilog_dir in verilog_path:
             verilog_path_args += ['-y', verilog_dir]
-        # tracing is required in order to see internal signals
-        verilator_args = ['bash', 'verilator', '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--trace', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
+
+        # Verilator is a perl program that is run as an executable
+        # Old versions of Verilator are interpreted as a perl script by the shell,
+        # while more recent versions are interpreted as a bash script that calls perl on itself
+        which_verilator = shutil.which('verilator')
+        if which_verilator is None:
+            raise Exception("'verilator' executable not found")
+        # tracing (--trace) is required in order to see internal signals
+        verilator_args = ['perl', which_verilator, '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--trace', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
         subprocess.call(verilator_args)
 
         # get internal signals by parsing the generated verilator output
