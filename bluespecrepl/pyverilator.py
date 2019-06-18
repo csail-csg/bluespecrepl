@@ -40,7 +40,7 @@ class PyVerilator:
         yosys_out, yosys_err = yosys.communicate()
         if yosys.returncode != 0:
             raise ValueError('Failed to retrieve IO ports using Yosys')
-        io_json = json.loads(yosys_out)['modules'][verilog_module_name]['ports'].items()
+        io_json = json.loads(yosys_out.decode('utf8'))['modules'][verilog_module_name]['ports'].items()
         inputs = list({ k:len(v['bits']) for (k,v) in io_json if v['direction'] == 'input'}.items())
         outputs = list({k: len(v['bits']) for (k, v) in io_json if v['direction'] == 'output'}.items())
         # inputs = verilog.get_inputs()
