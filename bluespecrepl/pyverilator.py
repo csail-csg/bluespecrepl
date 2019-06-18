@@ -7,7 +7,6 @@ import json
 import jinja2
 import re
 import bluespecrepl.vcd as vcd
-import bluespecrepl.verilog_mutator as verilog_mutator
 
 _template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 _jinja2_env = jinja2.Environment(loader = jinja2.FileSystemLoader(_template_path))
@@ -34,9 +33,17 @@ class PyVerilator:
             raise ValueError('PyVerilator.build() expects top_verilog_file to be a verilog file ending in .v')
 
         # parse verilog file to get the names of inputs and outputs
-        verilog = verilog_mutator.VerilogMutator(top_verilog_file)
-        inputs = verilog.get_inputs()
-        outputs = verilog.get_outputs()
+        # Same programming pattern as for verilator later.
+        yosys_args=['yosys','-q','-p', "read_verilog %s; select x:* %%n; delete; select *; write_json"%top_verilog_file]
+        yosys = subprocess.Popen(yosys_args, stdout=subprocess.PIPE, stderr= subprocess.PIPE)
+        yosys_out, yosys_err = yosys.communicate()
+        if yosys.returncode != 0:
+            raise ValueError('Failed to retrieve IO ports using Yosys')
+        io_json = json.loads(yosys_out)['modules'][verilog_module_name]['ports'].items()
+        inputs = list({ k:len(v['bits']) for (k,v) in io_json if v['direction'] == 'input'}.items())
+        outputs = list({k: len(v['bits']) for (k, v) in io_json if v['direction'] == 'output'}.items())
+        # inputs = verilog.get_inputs()
+        # outputs = verilog.get_outputs()
 
         # prepare the path for the C++ wrapper file
         if not os.path.exists(build_dir):
