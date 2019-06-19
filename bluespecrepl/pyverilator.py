@@ -41,10 +41,8 @@ class PyVerilator:
         if yosys.returncode != 0:
             raise ValueError('Failed to retrieve IO ports using Yosys')
         io_json = json.loads(yosys_out.decode('utf8'))['modules'][verilog_module_name]['ports'].items()
-        inputs = list({ k:len(v['bits']) for (k,v) in io_json if v['direction'] == 'input'}.items())
-        outputs = list({k: len(v['bits']) for (k, v) in io_json if v['direction'] == 'output'}.items())
-        # inputs = verilog.get_inputs()
-        # outputs = verilog.get_outputs()
+        inputs = [(k, len(v['bits'])) for (k,v) in io_json if v['direction'] == 'input']
+        outputs = [(k, len(v['bits'])) for (k, v) in io_json if v['direction'] == 'output']
 
         # prepare the path for the C++ wrapper file
         if not os.path.exists(build_dir):
