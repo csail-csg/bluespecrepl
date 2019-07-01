@@ -38,7 +38,7 @@ class BSVProject:
     """
 
     # paths that are always appended to the end of the user-specified paths
-    default_paths = ['%/Prelude', '%/Libraries', '%/Libraries/BlueNoC']
+    default_paths = ['+']
     # automatically add these to self.bsc_options in the __init__ function
     default_bsc_options = ['-aggressive-conditions', '-keep-fires']
 
@@ -52,7 +52,7 @@ class BSVProject:
             self.top_file = top_file
             self.top_module = top_module
             # Path
-            self.bsv_path = bsv_path
+            self.bsv_path = bsv_path.copy()
             if v_path is not None:
                 self.v_path = v_path
             else:
@@ -69,8 +69,8 @@ class BSVProject:
             for arg in BSVProject.default_bsc_options:
                 if arg not in bsc_options:
                     bsc_options.append(arg)
-            self.bsc_options = bsc_options
-            self.rts_options = rts_options
+            self.bsc_options = bsc_options.copy()
+            self.rts_options = rts_options.copy()
 
     # command line argument formatting
     def get_dir_args(self, build_dir = None, sim_dir = None, verilog_dir = None, info_dir = None, f_dir = None):
