@@ -2,7 +2,7 @@ import os
 from bluespecrepl import bsvproject, bsvutil, pyverilatorbsv
 
 # setup build directory
-build_dir = os.path.join('build',__file__)
+build_dir = os.path.join(os.path.dirname(__file__), 'build', os.path.basename(__file__))
 os.makedirs(build_dir, exist_ok = True)
 os.chdir(build_dir)
 

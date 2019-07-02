@@ -17,10 +17,10 @@ def mynamedtuple(name, item_names):
             return self._item_dict[arg]
         def __getitem__(self, index):
             return self._item_dict[self._item_names[index]]
-        def __repr__(self, arg):
+        def __repr__(self):
             ret = ''
             for item_name in self._item_names:
-                ret += item_name + ': ' + __repr__(self._item_dict[item_name])
+                ret += item_name + ': ' + repr(self._item_dict[item_name])
             return ret
         def __iter__(self):
             for item in self._item_names:
@@ -110,7 +110,10 @@ class BSVRule:
         return bool(self._get_index_of('WILL_FIRE'))
 
     def get_force_fire(self):
-        return bool(self._get_index_of('FORCE_FIRE'))
+        if 'FORCE_FIRE' in self.sim:
+            return bool(self._get_index_of('FORCE_FIRE'))
+        else:
+            return False
 
     def get_block_fire(self):
         return bool(self._get_index_of('BLOCK_FIRE'))
@@ -377,7 +380,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         if 'BLOCK_FIRE' not in self:
             raise ValueError('This function requires scheduling control in the Verilog')
         n = 0
-        self.setfire(self.listrules)
+        self.set_fire(self.rule_names)
         while not predicate(self):
             self.step(print_fired_rules)
             n += 1
