@@ -44,7 +44,7 @@ class BSVProject:
 
     def __init__(self, top_file = None, top_module = None, bsv_path = [], v_path = None, build_dir = 'build_dir', sim_dir = 'sim_dir', verilog_dir = 'verilog_dir', info_dir = 'info_dir', f_dir = '.', sim_exe = 'sim.out', bsc_options = [], rts_options = [], bspec_file = None):
         if bspec_file is not None:
-            import_bspec_project_file(bspec_file)
+            self.import_bspec_project_file(bspec_file)
         else:
             if top_file is None or top_module is None:
                 raise ValueError('Either top_file and top_module need to be defined, or bspec_file needs to be defined')
@@ -269,6 +269,37 @@ class BSVProject:
 
     # Advanced Functions
     #####################
+    def get_submodules(self):
+        """Returns a dictionary of submodules for each module in the current package.
+
+        The dictionary has module types as keys and lists of (name, type) tuples as values."""
+
+        submodule_dict = {}
+        with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+            bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
+            bluetcl.eval('Bluetcl::bpackage load %s' % os.path.basename(self.top_file).split('.')[0])
+            packages = bluetcl.eval('Bluetcl::bpackage list', to_list = True)
+
+            # "Bluetcl::defs module <pkg>" returns modules with package names as well,
+            # but "Bluetcl::module submods <mod>" doesn't accept package names, so they should be stripped
+            modules = [mod.split('::')[-1] for pkg in packages for mod in bluetcl.eval('Bluetcl::defs module %s' % pkg, to_list = True)]
+            uniq_modules = []
+            for mod in modules:
+                if mod not in uniq_modules:
+                    uniq_modules.append(mod)
+            for module in uniq_modules:
+                bluetcl.eval('Bluetcl::module load %s' % module)
+                user_or_prim, submodules, functions = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module submods %s' % module))
+                # If there is only one submodule, "Bluetcl::module submods <mod>" doesn't return a list of lists
+                if isinstance(submodules, str):
+                    if submodules == '':
+                        submodules = tuple()
+                    else:
+                        submodules = (tuple(submodules.split(' ')),)
+                if user_or_prim == 'user':
+                    submodule_dict[module] = submodules
+        return submodule_dict
+
     def get_hierarchy(self, module_name = None):
         if module_name is None:
             module_name = self.top_module
@@ -308,7 +339,7 @@ class BSVProject:
         """
         # The complete schedule can be inferred by this file
         bluesim_model_file = os.path.join(self.sim_dir, 'model_%s.cxx' % self.top_module)
-        # bluesim compilation is erquired to generate the bluesim_model_file
+        # bluesim compilation is required to generate the bluesim_model_file
         self.compile_bluesim()
 
         # regex patterns

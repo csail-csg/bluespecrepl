@@ -3,10 +3,10 @@
 import tkinter as tk
 
 # use tkinter because it already has some functions to parse tcl output
-tcl = tk.Tk(useTk = 0)
+_tcl = tk.Tk(useTk = 0)
 
-tclstring_to_list = tcl.tk.splitlist
-tclstring_to_nested_list = tcl.tk.split
+tclstring_to_list = _tcl.tk.splitlist
+tclstring_to_nested_list = _tcl.tk.split
 def list_to_tclstring(in_list):
     cleaned_up_list = []
     for entry in in_list:

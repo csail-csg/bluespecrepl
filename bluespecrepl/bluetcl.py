@@ -2,6 +2,8 @@
 
 import bluespecrepl.tclwrapper as tclwrapper
 
+# Note: To get more information about bluetcl, run the command "Bluetcl::help" within bluetcl
+
 class Virtual:
     # { class : { field : is_array }}
     object_fields = {

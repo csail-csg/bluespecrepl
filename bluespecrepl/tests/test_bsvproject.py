@@ -97,3 +97,62 @@ class TestBSVProject(unittest.TestCase):
         # check for bluesim output
         self.assertFalse(os.path.isfile(os.path.join('sim_dir','mkTest.cxx')))
         self.assertFalse(os.path.isfile('sim.out'))
+
+    def test_bsvproject_get_submodules(self):
+        with open('Test.bsv', 'w') as f:
+            f.write('''
+                import FIFO::*;
+                (* synthesize *)
+                module mkTop(Empty);
+                    Empty middle_submod_1 <- mkMiddle;
+                    Empty middle_submod_2 <- mkMiddle;
+                    rule ruleOne;
+                        $display("Hello,");
+                    endrule
+                    rule ruleTwo;
+                        $display("World!");
+                    endrule
+                endmodule
+                (* synthesize *)
+                module mkMiddle(Empty);
+                    FIFO#(Bit#(32)) fifo <- mkLFIFO;
+                    Empty bottom_submod_1 <- mkBottom1;
+                    Empty bottom_submod_2 <- mkBottom2;
+                    Empty bottom_submod_3 <- mkBottom3;
+                endmodule
+                (* synthesize *)
+                module mkBottom1(Empty);
+                endmodule
+                (* synthesize *)
+                module mkBottom2(Empty);
+                    FIFO#(Bit#(32)) fifo <- mkLFIFO;
+                endmodule
+                (* synthesize *)
+                module mkBottom3(Empty);
+                    Empty bottom_submod_1 <- mkBottom1;
+                endmodule
+                ''')
+        expected_result = {
+            'mkTop' : [('middle_submod_1', 'mkMiddle'), ('middle_submod_2', 'mkMiddle')],
+            'mkMiddle' : [('fifo', 'FIFOL1'), ('bottom_submod_1', 'mkBottom1'), ('bottom_submod_2', 'mkBottom2'), ('bottom_submod_3', 'mkBottom3')],
+            'mkBottom1' : [],
+            'mkBottom2' : [('fifo', 'FIFOL1')],
+            'mkBottom3' : [('bottom_submod_1', 'mkBottom1')]
+        }
+        proj = bsvproject.BSVProject(top_file = 'Test.bsv', top_module = 'mkTop')
+        proj.compile_verilog(extra_bsc_args=['-elab'])
+        submodules = proj.get_submodules()
+        # make sure submodules is a dict:
+        self.assertIsInstance(submodules, dict)
+        # make sure the keys of the dict are correct:
+        for m in submodules:
+            self.assertIn(m, expected_result)
+        for m in expected_result:
+            self.assertIn(m, submodules)
+        # make sure the values of the dict are correct
+        for m, submodule_pairs in submodules.items():
+            self.assertIsInstance(submodule_pairs, tuple)
+            for submodule_pair in submodule_pairs:
+                self.assertIn(submodule_pair, expected_result[m])
+            for submodule_pair in expected_result[m]:
+                self.assertIn(submodule_pair, submodule_pairs)
