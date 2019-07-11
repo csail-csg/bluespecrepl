@@ -33,17 +33,6 @@ class PyVerilator:
         if extension != '.v':
             raise ValueError('PyVerilator.build() expects top_verilog_file to be a verilog file ending in .v')
 
-        # parse verilog file to get the names of inputs and outputs
-        # Same programming pattern as for verilator later.
-        yosys_args=['yosys','-q','-p', "read_verilog %s; select x:* %%n; delete; select *; write_json"%top_verilog_file]
-        yosys = subprocess.Popen(yosys_args, stdout=subprocess.PIPE, stderr= subprocess.PIPE)
-        yosys_out, yosys_err = yosys.communicate()
-        if yosys.returncode != 0:
-            raise ValueError('Failed to retrieve IO ports using Yosys')
-        io_json = json.loads(yosys_out.decode('utf8'))['modules'][verilog_module_name]['ports'].items()
-        inputs = [(k, len(v['bits'])) for (k,v) in io_json if v['direction'] == 'input']
-        outputs = [(k, len(v['bits'])) for (k, v) in io_json if v['direction'] == 'output']
-
         # prepare the path for the C++ wrapper file
         if not os.path.exists(build_dir):
             os.makedirs(build_dir)
@@ -64,18 +53,40 @@ class PyVerilator:
         verilator_args = ['perl', which_verilator, '-Wno-fatal', '-Mdir', build_dir] + verilog_path_args + ['--CFLAGS', '-fPIC --std=c++11', '--trace', '--cc', top_verilog_file, '--exe', verilator_cpp_wrapper_path]
         subprocess.call(verilator_args)
 
-        # get internal signals by parsing the generated verilator output
+        # get inputs, outputs, and internal signals by parsing the generated verilator output
+        inputs = []
+        outputs = []
         internal_signals = []
         verilator_h_file = os.path.join(build_dir, 'V' + verilog_module_name + '.h')
-        with open(verilator_h_file) as f:
-            for line in f:
-                result = re.search(r'(VL_SIG[^(]*)\(([^,]+),([0-9]+),([0-9]+)(?:,[0-9]+)?\);', line)
-                if result:
-                    signal_name = result.group(2)
+        def search_for_signal_decl(signal_type, line):
+            # looks for VL_IN*, VL_OUT*, or VL_SIG* macros
+            result = re.search('(VL_' + signal_type + r'[^(]*)\(([^,]+),([0-9]+),([0-9]+)(?:,[0-9]+)?\);', line)
+            if result:
+                signal_name = result.group(2)
+                if signal_type == 'SIG':
                     if signal_name.startswith(verilog_module_name) and '[' not in signal_name and int(result.group(4)) == 0:
                         # this is an internal signal
                         signal_width = int(result.group(3)) - int(result.group(4)) + 1
-                        internal_signals.append((signal_name, signal_width))
+                        return (signal_name, signal_width)
+                    else:
+                        return None
+                else:
+                    # this is an input or an output
+                    signal_width = int(result.group(3)) - int(result.group(4)) + 1
+                    return (signal_name, signal_width)
+            else:
+                return None
+        with open(verilator_h_file) as f:
+            for line in f:
+                result = search_for_signal_decl('IN', line)
+                if result:
+                    inputs.append(result)
+                result = search_for_signal_decl('OUT', line)
+                if result:
+                    outputs.append(result)
+                result = search_for_signal_decl('SIG', line)
+                if result:
+                    internal_signals.append(result)
 
         # generate the C++ wrapper file
         verilator_cpp_wrapper_code = _verilator_cpp_wrapper_template.render({
