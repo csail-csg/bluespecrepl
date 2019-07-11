@@ -190,6 +190,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self._populate_interface()
         self._populate_rules()
         self._populate_internal()
+        self._populate_submodules()
 
     def _populate_interface(self):
         # look for ready outputs to get all the interface method names
@@ -228,10 +229,23 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self.interface = Interface(methods)
 
     def _populate_rules(self):
+        self.rules = self._get_rules()
+
+    def _get_rules(self, submodule = None):
         rule_dict = {}
+        rule_names = []
         for i in range(len(self.rule_names)):
-            rule_dict[self.rule_names[i]] = BSVRule(self, self.rule_names[i], i)
-        class Rules(mynamedtuple('Rules', self.rule_names)):
+            if submodule is not None:
+                rule_submodule = self.rule_names[i].split('__DOT__')[:-1]
+                if rule_submodule != submodule:
+                    continue
+                rule_short_name = self.rule_names[i].split('__DOT__')[-1]
+                rule_dict[rule_short_name] = BSVRule(self, rule_short_name, i)
+                rule_names.append(rule_short_name)
+            else:
+                rule_dict[self.rule_names[i]] = BSVRule(self, self.rule_names[i], i)
+                rule_names.append(self.rule_names[i])
+        class Rules(mynamedtuple('Rules', rule_names)):
             def __repr__(self):
                 ret = 'rules:'
                 for i in self:
@@ -251,20 +265,34 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     else:
                         ret += '    (CAN_FIRE is false)'
                 return ret
-        self.rules = Rules(rule_dict)
+        return Rules(rule_dict)
 
     def _populate_internal(self):
+        self.internal = self._get_internal()
+
+    def _get_internal(self, submodule = None):
         signal_names = []
         signal_dict = {}
         for signal_name, signal_width in self.internal_signals:
             # '__024' is from having a $ is the signal name
-            if 'CAN_FIRE_' not in signal_name and 'WILL_FIRE_' not in signal_name and '__024' not in signal_name:
-                # make sure short_name and final_name don't start with '_'
-                final_name = signal_name.split('__DOT__')[-1]
-                short_name = signal_name.split('__DOT__', 1)[1]
-                if not short_name.startswith('_') and not final_name.startswith('_'):
-                    signal_names.append(short_name)
-                    signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
+            if 'CAN_FIRE_' in signal_name or 'WILL_FIRE_' in signal_name or '__024' in signal_name:
+                continue
+            # __DOT__ is used by verilator and bluespecrepl to denote module boundaries
+            split_name = signal_name.split('__DOT__')
+            # signal name without the top module's name
+            short_name = signal_name.split('__DOT__', 1)[1]
+            final_name = split_name[-1]
+            signal_submodule = split_name[1:-1]
+            if short_name.startswith('_') or final_name.startswith('_'):
+                continue
+            if submodule is not None:
+                if signal_submodule != submodule:
+                    continue
+                signal_names.append(final_name)
+                signal_dict[final_name] = BSVSignal(self, final_name, signal_name, signal_width)
+            else:
+                signal_names.append(short_name)
+                signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
         signal_names.sort()
         class Internal(mynamedtuple('Internal', signal_names)):
             def __repr__(self):
@@ -272,7 +300,69 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                 for i in self:
                     ret += '\n    ' + str(i) + ' = ' + hex(i.get_value())
                 return ret
-        self.internal = Internal(signal_dict)
+        return Internal(signal_dict)
+
+    def _get_submodules(self):
+        # first use internal_signals, then use rules
+        # this will (probably) return [] as one of the submodules representing to top level
+        submodules = []
+        for signal_name, signal_width in self.internal_signals:
+            if 'CAN_FIRE_' in signal_name or 'WILL_FIRE_' in signal_name or '__024' in signal_name:
+                continue
+            submodule_name = signal_name.split('__DOT__')[1:-1]
+            if submodule_name not in submodules:
+                submodules.append(submodule_name)
+        for rule_name in self.rule_names:
+            submodule_name = rule_name.split('__DOT__')[:-1]
+            if submodule_name not in submodules:
+                submodules.append(submodule_name)
+        submodules.sort()
+        return submodules
+
+    def _populate_submodules(self):
+        submodules = self._get_submodules()
+        submodules_by_depth = {}
+        max_depth = 0
+        for submodule in submodules:
+            depth = len(submodule)
+            if depth > max_depth:
+                max_depth = depth
+            if depth not in submodules_by_depth:
+                submodules_by_depth[depth] = [submodule]
+            else:
+                submodules_by_depth[depth].append(submodule)
+        # get rules and internals for each submodule
+        populated_submodules = {}
+        for d in range(max_depth, -1, -1):
+            for submodule in submodules_by_depth.get(d, []):
+                rules = self._get_rules(submodule)
+                internals = self._get_internal(submodule)
+                submodule_dot_name = '.'.join(submodule)
+                child_depth = len(submodule) + 1
+                child_submodule_names = [x for x in submodules_by_depth.get(child_depth, []) if x[:len(submodule)] == submodule]
+                child_submodules = { x[-1] : populated_submodules['.'.join(x)] for x in child_submodule_names }
+                child_submodule_short_names = list(child_submodules.keys())
+                child_submodule_short_names.sort()
+                class Submodule(mynamedtuple(submodule_dot_name, ['full_name', *child_submodule_short_names, 'rules', 'internals'])):
+                    def __repr__(self):
+                        ret = 'current module: ' + self[0]
+                        ret += '\nsubmodules:'
+                        for i in range(1, len(self) - 2):
+                            ret += '\n    ' + self[i][0].split('.')[-1]
+                        ret += '\n' + repr(self.rules)
+                        ret += '\n' + repr(self.internals)
+                        return ret
+                submodule_dict = child_submodules.copy()
+                if submodule_dot_name == '':
+                    submodule_dict['full_name'] = '(TOP)'
+                else:
+                    submodule_dict['full_name'] = submodule_dot_name
+                submodule_dict['rules'] = rules
+                submodule_dict['internals'] = internals
+                populated_submodules[submodule_dot_name] = Submodule(submodule_dict)
+        if '' in populated_submodules:
+            # only populate the submodules if at least one submodule was found
+            self.modular = populated_submodules['']
 
     def __repr__(self):
         return repr(self.interface) + '\n' + repr(self.rules) + '\n' + repr(self.internal)
