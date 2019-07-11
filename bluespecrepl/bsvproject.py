@@ -160,11 +160,12 @@ class BSVProject:
         rules = []
         if scheduling_control:
             # modify the compiled verilog to add scheduling control signals
-            # first get the hierarchy of verilog files
+            # this is done hierarchically from the leaf modules to the top module
             mutators = { module : verilog_mutator.VerilogMutator(module_verilog_file) for module, module_verilog_file in verilator_verilog_files.items() }
             submodules = { module : mutator.get_submodules() for module, mutator in mutators.items() }
             modules_to_mutate = list(verilator_verilog_files.keys())
-            rules_per_module = {}
+            num_rules_per_module = {}
+            rule_names_per_module = {}
             while len(modules_to_mutate) != 0:
                 module_to_mutate = None
                 for module in modules_to_mutate:
@@ -177,13 +178,32 @@ class BSVProject:
                         break
                 if module_to_mutate is not None:
                     mutator = mutators[module_to_mutate]
-                    num_rules = mutator.expose_internal_scheduling_signals(num_rules_per_module = rules_per_module)
+                    num_rules = mutator.expose_internal_scheduling_signals(num_rules_per_module = num_rules_per_module)
                     mutator.write_verilog(verilator_verilog_files[module])
                     rules = mutator.get_rules_in_scheduling_order()
-                    rules_per_module[module_to_mutate] = num_rules
+                    num_rules_per_module[module_to_mutate] = num_rules
+                    # get list of rule names
+                    full_module_rule_names = []
+                    for sched_item in mutator.get_default_scheduling_order():
+                        if sched_item.startswith('RL_'):
+                            full_module_rule_names.append(sched_item)
+                        elif sched_item.startswith('MODULE_'):
+                            submodule_instance_name = sched_item[len('MODULE_'):]
+                            submodule_type = [y for x, y in submodules[module_to_mutate] if x == submodule_instance_name][0]
+                            if submodule_type not in rule_names_per_module:
+                                # this submodule has no known rules
+                                continue
+                            submodule_rule_names = [submodule_instance_name + '__DOT__' + x for x in rule_names_per_module[submodule_type]]
+                            full_module_rule_names += submodule_rule_names
+                        else:
+                            raise Exception('Unsupported scheuling item type')
+                    rule_names_per_module[module_to_mutate] = full_module_rule_names
+                    rule_order = mutator.get_default_scheduling_order()
                     modules_to_mutate.remove(module_to_mutate)
                 else:
                     raise Exception("Adding scheduling control failed. Can't find next module to mutate")
+            # get rule names
+            rules = rule_names_per_module[self.top_module]
 
         return pyverilatorbsv.PyVerilatorBSV.build(
                 verilog_file,
