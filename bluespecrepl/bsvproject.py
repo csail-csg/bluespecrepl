@@ -99,6 +99,8 @@ class BSVProject:
 
     def get_path_arg(self):
         """Returns formatted bsc arguments for the path."""
+        # The bluespec compiler automatically adds build_dir to the front of the path, but bluetcl does not,
+        # so we add it manually and get a warning from the bluespec compiler about redundant folders in the path
         return ['-p', ':'.join([self.build_dir] + self.bsv_path + BSVProject.default_paths)]
 
     def get_sim_exe_out_arg(self):
@@ -116,6 +118,7 @@ class BSVProject:
         verilog is written to the projects verilog_dir.
         """
         # add the -elab flag to ensure .ba files are generated during compilation
+        # .ba files are used by bluetcl to get information about the design
         bsc_command = ['bsc', '-verilog', '-elab'] + self.bsc_options + extra_bsc_args + self.get_dir_args(verilog_dir = out_folder) + self.get_path_arg() + ['-g', self.top_module, '-u', self.top_file]
         exit_code = subprocess.call(bsc_command)
         if exit_code != 0:
@@ -144,21 +147,43 @@ class BSVProject:
         self.compile_verilog(extra_bsc_args = extra_bsc_args)
 
         # copy verilog files to verilator dir
+        verilator_verilog_files = {} # map from module name to verilog file
         if not os.path.exists(verilator_dir):
             os.makedirs(verilator_dir)
         for name in os.listdir(self.verilog_dir):
             base, extension = os.path.splitext(name)
             if extension.lower() == '.v':
                 shutil.copy(os.path.join(self.verilog_dir, name), os.path.join(verilator_dir, name))
+                verilator_verilog_files[base] = os.path.join(verilator_dir, name)
 
         verilog_file = os.path.join(verilator_dir, self.top_module + '.v')
         rules = []
         if scheduling_control:
             # modify the compiled verilog to add scheduling control signals
-            mutator = verilog_mutator.VerilogMutator(verilog_file)
-            mutator.expose_internal_scheduling_signals()
-            mutator.write_verilog(verilog_file)
-            rules = mutator.get_rules_in_scheduling_order()
+            # first get the hierarchy of verilog files
+            mutators = { module : verilog_mutator.VerilogMutator(module_verilog_file) for module, module_verilog_file in verilator_verilog_files.items() }
+            submodules = { module : mutator.get_submodules() for module, mutator in mutators.items() }
+            modules_to_mutate = list(verilator_verilog_files.keys())
+            rules_per_module = {}
+            while len(modules_to_mutate) != 0:
+                module_to_mutate = None
+                for module in modules_to_mutate:
+                    good_candidate = True
+                    for instance_name, instance_module in submodules[module]:
+                        if instance_module in modules_to_mutate:
+                            good_candidate = False
+                    if good_candidate:
+                        module_to_mutate = module
+                        break
+                if module_to_mutate is not None:
+                    mutator = mutators[module_to_mutate]
+                    num_rules = mutator.expose_internal_scheduling_signals(num_rules_per_module = rules_per_module)
+                    mutator.write_verilog(verilator_verilog_files[module])
+                    rules = mutator.get_rules_in_scheduling_order()
+                    rules_per_module[module_to_mutate] = num_rules
+                    modules_to_mutate.remove(module_to_mutate)
+                else:
+                    raise Exception("Adding scheduling control failed. Can't find next module to mutate")
 
         return pyverilatorbsv.PyVerilatorBSV.build(
                 verilog_file,
@@ -279,6 +304,8 @@ class BSVProject:
             raise Exception('packages already populated')
         if self.modules is not None:
             raise Exception('modules already populated')
+        if not os.path.isfile(os.path.join(self.build_dir, self.top_module + '.ba')):
+            raise Exception("top file not elaborated: either you forgot to build the design or the top module doesn't have a (* synthesize *) attribute")
         with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
             bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
             # load top package

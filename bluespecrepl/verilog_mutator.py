@@ -254,6 +254,7 @@ class VerilogMutator:
                     # declarations of all FIRE signals for the submodule
                     self.add_decls(signal_type + '_' + name, ast.Wire, width = num_submodule_rules)
                     # connection of all FIRE signals to the submodule
+                    # this assumes the submodule has ports named CAN_FIRE, WILL_FIRE, BLOCK_FIRE, and if add_force_fire is true, FORCE_FIRE
                     instance.portlist += (ast.PortArg(signal_type, ast.Identifier(signal_type + '_' + name)),)
                 # assignments of BLOCK_FIRE_* and FORCE_FIRE_* signals from top-level BLOCK_FIRE and FORCE_FIRE
                 lsb = curr_bit_index
@@ -291,6 +292,8 @@ class VerilogMutator:
             will_fires.reverse()
             self.add_assign('CAN_FIRE', ast.Concat(can_fires))
             self.add_assign('WILL_FIRE', ast.Concat(will_fires))
+
+        return total_num_bits
 
 if __name__ == '__main__':
     import sys
