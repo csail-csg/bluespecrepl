@@ -71,6 +71,9 @@ class BSVProject:
                     bsc_options.append(arg)
             self.bsc_options = bsc_options.copy()
             self.rts_options = rts_options.copy()
+        # stuctures that hold metadata obtained from bluetcl
+        self.packages = None
+        self.modules = None
 
     # command line argument formatting
     def get_dir_args(self, build_dir = None, sim_dir = None, verilog_dir = None, info_dir = None, f_dir = None):
@@ -267,12 +270,35 @@ class BSVProject:
         params['COMP_RTS_OPTIONS'] = ' '.join(self.rts_options)
         return params
 
+    def populate_packages_and_modules(self):
+        """Populates self.packages and self.modules members using information from bluetcl.
+
+        self.packages is a dictionary mapping package names to BluespecPackage objects.
+        self.modules is a dictionary mapping module names to BluespecModule objects."""
+        if self.packages is not None:
+            raise Exception('packages already populated')
+        if self.modules is not None:
+            raise Exception('modules already populated')
+        with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+            bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
+            # load top package
+            bluetcl.eval('Bluetcl::bpackage load %s' % os.path.basename(self.top_file).split('.')[0])
+            # list all packages
+            packages = bluetcl.eval('Bluetcl::bpackage list', to_list = True)
+
+            self.packages = { pkg_name : BluespecPackage(pkg_name, bluetcl) for pkg_name in packages}
+            self.modules = {}
+            for package_name in self.packages:
+                for module in self.packages[package_name].modules:
+                    if module not in self.modules:
+                        self.modules[module] = BluespecModule(module, bluetcl)
+
     # Advanced Functions
     #####################
     def get_submodules(self):
         """Returns a dictionary of submodules for each module in the current package.
 
-        The dictionary has module types as keys and lists of (name, type) tuples as values."""
+        The dictionary has module names as keys and lists of (instance_name, module_name) tuples as values."""
 
         submodule_dict = {}
         with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
@@ -299,6 +325,39 @@ class BSVProject:
                 if user_or_prim == 'user':
                     submodule_dict[module] = submodules
         return submodule_dict
+
+    def get_rule_method_calls(self):
+        """Returns a dictionary of rules and methodcalls for each rule in the current package.
+
+        The dictionary contains a list of (rule, methods) tuples in execution order."""
+
+        rule_method_call_dict = {}
+        with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
+            bluetcl.eval('Bluetcl::flags set -verilog ' + ' '.join(self.get_path_arg()))
+            bluetcl.eval('Bluetcl::bpackage load %s' % os.path.basename(self.top_file).split('.')[0])
+            packages = bluetcl.eval('Bluetcl::bpackage list', to_list = True)
+
+            # "Bluetcl::defs module <pkg>" returns modules with package names as well,
+            # but "Bluetcl::module submods <mod>" doesn't accept package names, so they should be stripped
+            modules = [mod.split('::')[-1] for pkg in packages for mod in bluetcl.eval('Bluetcl::defs module %s' % pkg, to_list = True)]
+            uniq_modules = []
+            for mod in modules:
+                if mod not in uniq_modules:
+                    uniq_modules.append(mod)
+            for module in uniq_modules:
+                bluetcl.eval('Bluetcl::module load %s' % module)
+                execution_order = tclstring_to_list(bluetcl.eval('Bluetcl::schedule execution %s' % module))
+                rule_method_call_dict[module] = []
+                for rule in execution_order:
+                    rule_info = tclstring_to_list(bluetcl.eval('Bluetcl::rule full %s %s' % (module, rule)))
+                    # look for item that has 'methods' as its first element
+                    # assume its always the 3rd element
+                    if not rule_info[3].startswith('methods'):
+                        raise Exception('method is expected to be the 3rd element from "Bluetcl::rule full <mod> <rule>"')
+                    methods_tclstring = str(rule_info[3][len('methods '):])
+                    method_calls = tclstring_to_flat_list(methods_tclstring)
+                    rule_method_call_dict[module].append((rule, method_calls))
+        return rule_method_call_dict
 
     def get_hierarchy(self, module_name = None):
         if module_name is None:
@@ -331,7 +390,7 @@ class BSVProject:
             bluetcl.eval('Bluetcl::module load ' + module_name)
             return tclstring_to_list(bluetcl.eval('Bluetcl::schedule execution ' + module_name))
 
-    def get_complete_schedule(self):
+    def get_complete_schedule_from_bluesim(self):
         """Returns the complete schedule for the top module.
 
         The schedule is a combination of top-level interface methods, top-level
@@ -373,6 +432,175 @@ class BSVProject:
                     complete_schedule.append(tuple(hierarchy))
                 line = f.readline()
         return complete_schedule
+
+    def get_complete_schedule(self, module_name = None):
+        """Returns the complete schedule for the top module.
+
+        The schedule is a combination of top-level interface methods, top-level
+        rules, and submodule rules.
+        """
+
+        # from scratch
+        if self.modules is None:
+            self.populate_packages_and_modules()
+
+        if module_name is None:
+            module_name = self.top_module
+
+        instance_dict = {}
+        worklist = [ (module_name, self.modules[module_name]) ]
+        while len(worklist) != 0:
+            instance_name, module = worklist.pop()
+            instance_dict[instance_name] = module
+            for submodule_instance, submodule_type in module.submodules:
+                if submodule_type in self.modules:
+                    worklist.append((instance_name + '.' + submodule_instance, self.modules[submodule_type]))
+
+        partial_order = {}
+        called_methods = {} # list of rules (and methods) that call a given method
+        for instance_name, module in instance_dict.items():
+            # add execution to partial order
+            for i in range(len(module.execution)):
+                partial_order[instance_name + '.' + module.execution[i]] = [instance_name + '.' + x for x in module.execution[i+1:]]
+            # add method calls to partial order
+            # get list of rules that call each method
+            for rule, methods in module.method_calls_by_rule.items():
+                full_rule_name = instance_name + '.' + rule
+                for method in methods:
+                    full_method_name = instance_name + '.' + method
+                    if full_method_name not in called_methods:
+                        called_methods[full_method_name] = [full_rule_name]
+                    else:
+                        called_methods[full_method_name].append(full_rule_name)
+            # make sure all lower-level methods appear in called_methods, even if they are not called by a rule
+            for rule in module.execution:
+                if rule.count('.') > 1 and not rule.split('.')[-1].startswith('RL_'):
+                    # this is a lower-level method
+                    if rule not in called_methods:
+                        called_methods[rule] = []
+        # the items in called_methods are a list of rules and methods, this function helps to get just rules
+        # similar to taking the transitive closure of called_methods
+        def get_rules_from_rule_or_method(x):
+            if x not in called_methods:
+                # x is a rule or top-level method
+                return [x]
+            rules = [get_rules_from_rule_or_method(y) for y in called_methods[x]]
+            rules = sum(rules, []) # flatten rules
+            return list(set(rules))
+        # create a new partial order that doesn't contain called methods
+        new_partial_order = {}
+        for first_rule, second_rules in partial_order.items():
+            actual_first_rules = get_rules_from_rule_or_method(first_rule)
+
+            actual_second_rules = []
+            for second_rule in second_rules:
+                actual_second_rules += get_rules_from_rule_or_method(second_rule)
+
+            for r1 in actual_first_rules:
+                if r1 not in new_partial_order:
+                    new_partial_order[r1] = actual_second_rules
+                else:
+                    new_partial_order[r1] += actual_second_rules
+        # cleanup new_partial_order
+        for first_rule in new_partial_order:
+            new_partial_order[first_rule] = list(set(new_partial_order[first_rule]))
+            while new_partial_order[first_rule].count(first_rule) > 0:
+                new_partial_order[first_rule].remove(first_rule)
+        partial_order = new_partial_order.copy()
+
+        full_schedule = []
+        to_schedule = set(partial_order.keys())
+        # schedule rules from end to beginning
+        while len(to_schedule) > 0:
+            removed_candidate = False
+            for candidate in to_schedule:
+                if len(partial_order[candidate]) == 0:
+                    to_schedule.remove(candidate)
+                    full_schedule = [candidate] + full_schedule
+                    # remove candidate from all the partial orders
+                    for x in partial_order:
+                        while partial_order[x].count(candidate) > 0:
+                            partial_order[x].remove(candidate)
+                    removed_candidate = True
+                    break
+            if not removed_candidate:
+                raise Exception("getting the full schedule failed")
+
+        return full_schedule
+
+# There are no links between bluespec packages and modules, everything is done by name
+class BluespecPackage:
+    def __init__(self, name, bluetcl):
+        # first open package if its not already open
+        bluetcl.eval('Bluetcl::bpackage load %s' % name)
+        self.name = name
+        def remove_package_name(n):
+            return n.split('::')[-1]
+        self.types = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs type %s' % name))))
+        self.modules = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs module %s' % name))))
+        self.func = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs func %s' % name))))
+
+class BluespecModule:
+    def __init__(self, name, bluetcl):
+        if '::' in name:
+            self.package = name.split('::')[0]
+            self.name = name.split('::')[1]
+        else:
+            self.package = None
+            self.name = name
+        bluetcl.eval('Bluetcl::module load %s' % self.name)
+
+        # get scheduling info (urgency and execution)
+        urgency_tclstrings = tclstring_to_list(bluetcl.eval('Bluetcl::schedule urgency %s' % self.name))
+        urgency_lists = list(map(tclstring_to_flat_list, urgency_tclstrings))
+        # urgency is a list of rules that block a given rule
+        self.urgency = { x[0] : x[1:] for x in urgency_lists}
+        self.execution = tclstring_to_list(bluetcl.eval('Bluetcl::schedule execution %s' % self.name))
+        self.methodinfo = tclstring_to_list(bluetcl.eval('Bluetcl::schedule methodinfo %s' % self.name))
+        self.pathinfo = tclstring_to_list(bluetcl.eval('Bluetcl::schedule pathinfo %s' % self.name))
+
+        # get submodule info (list of submodule instance names and constructors)
+        user_or_prim, submodules, functions = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module submods %s' % self.name))
+        if len(functions) != 0:
+            print('There is a function used in %s' % self.name)
+        # If there is only one submodule, "Bluetcl::module submods <mod>" doesn't return a list of lists
+        if isinstance(submodules, str):
+            if submodules == '':
+                submodules = tuple()
+            else:
+                submodules = (tuple(submodules.split()),)
+        if user_or_prim == 'user':
+            self.submodules = submodules
+        else:
+            self.submodules = tuple()
+
+        # get rule info (methods called by each rule)
+        self.method_calls_by_rule = {}
+        for rule in self.execution:
+            rule_info = tclstring_to_list(bluetcl.eval('Bluetcl::rule full %s %s' % (self.name, rule)))
+            # look for item that has 'methods' as its first element
+            # It is usually the 3rd element, but if a rule has attributes, then it is the 4th element
+            methods_tclstring = None
+            for i in range(len(rule_info)):
+                if rule_info[i].startswith('methods'):
+                    methods_tclstring = str(rule_info[i][len('methods '):])
+            if methods_tclstring is None:
+                raise Exception('"method" tag was not found in "Bluetcl::rule full <mod> <rule>"')
+            method_calls = tclstring_to_flat_list(methods_tclstring)
+            self.method_calls_by_rule[rule] = method_calls
+
+        # sanity check
+        conflict = False
+        for i in range(len(self.execution)):
+            rule = self.execution[i]
+            conflicting_rules = self.urgency[rule]
+            for conflicting_rule in conflicting_rules:
+                if conflicting_rule not in self.execution[:i]:
+                    # I'm not sure why this happens sometimes, but I'm just allowing it for now
+                    # raise Exception("a rule is blocked by a rule that is later in execution order")
+                    conflict = True
+        if conflict:
+            print('module {} has an urgency and conflicts with the execution order'.format(self.name))
 
 if __name__ == '__main__':
     bsv_module_text='''(* noinline *)
