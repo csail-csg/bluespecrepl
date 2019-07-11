@@ -7,6 +7,8 @@ _tcl = tk.Tk(useTk = 0)
 
 tclstring_to_list = _tcl.tk.splitlist
 tclstring_to_nested_list = _tcl.tk.split
+def tclstring_to_flat_list(tclstring):
+    return tclstring.replace('{', ' ').replace('}', ' ').split()
 def list_to_tclstring(in_list):
     cleaned_up_list = []
     for entry in in_list:
