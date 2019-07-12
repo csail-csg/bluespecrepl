@@ -84,6 +84,7 @@ class TCLWrapper:
         if not self._process:
             raise ('no tcl instance running.')
         try:
+            self._process.stdin.write(b'exit\n')
             self._process.communicate(timeout = 1)
         except subprocess.TimeoutExpired:
             self._process.kill()
@@ -144,7 +145,7 @@ class TCLWrapper:
             while fetching_stdout or fetching_stderr:
                 return_code = self._process.poll()
                 if return_code is not None:
-                    raise TCLWrapperInstanceError('tcl process finished unexpectedly with return code %d' % ret)
+                    raise TCLWrapperInstanceError('tcl process finished unexpectedly with return code %d' % return_code)
                 if fetching_stdout:
                     try:
                         stdout += self._process.stdout.read1(1)
