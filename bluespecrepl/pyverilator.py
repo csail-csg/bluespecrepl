@@ -57,6 +57,7 @@ class PyVerilator:
         inputs = []
         outputs = []
         internal_signals = []
+        internal_arrays = []
         verilator_h_file = os.path.join(build_dir, 'V' + verilog_module_name + '.h')
         def search_for_signal_decl(signal_type, line):
             # looks for VL_IN*, VL_OUT*, or VL_SIG* macros
@@ -76,17 +77,46 @@ class PyVerilator:
                     return (signal_name, signal_width)
             else:
                 return None
+        def search_for_internal_array(line):
+            # looks for VL_SIG* macros
+            result = re.search(r'(VL_SIG[^(]*)\(([^,]+),([0-9]+),([0-9]+)(?:,[0-9]+)?\);', line)
+            if result:
+                signal_name = result.group(2)
+                if not signal_name.startswith(verilog_module_name):
+                    return None
+                # make sure the name is of the form name[args]
+                name_result = re.fullmatch(r'([^[]*)\[([^]]*)\]', signal_name)
+                if name_result:
+                    base_name = name_result.group(1)
+                    try:
+                        # in case the args in [] aren't just an integer
+                        array_depth = int(name_result.group(2))
+                    except e:
+                        print("WARNING: Can't convert array length \"%s\" to int in \"%s\"" % (result.group(2), signal_name))
+                        return None
+                    signal_width = int(result.group(3)) - int(result.group(4)) + 1
+                    return (base_name, signal_width, array_depth)
+                else:
+                    if '[' in signal_name:
+                        print("WARNING: Can't parse signal name \"%s\" as array" % (signal_name))
+                    return None
+            else:
+                return None
         with open(verilator_h_file) as f:
             for line in f:
                 result = search_for_signal_decl('IN', line)
-                if result:
+                if result is not None:
                     inputs.append(result)
                 result = search_for_signal_decl('OUT', line)
-                if result:
+                if result is not None:
                     outputs.append(result)
                 result = search_for_signal_decl('SIG', line)
-                if result:
+                if result is not None:
                     internal_signals.append(result)
+                # TODO: search for internal_array
+                result = search_for_internal_array(line)
+                if result is not None:
+                    internal_arrays.append(result)
 
         # generate the C++ wrapper file
         verilator_cpp_wrapper_code = _verilator_cpp_wrapper_template.render({
@@ -94,6 +124,7 @@ class PyVerilator:
             'inputs' : inputs,
             'outputs' : outputs,
             'internal_signals' : internal_signals,
+            'internal_arrays' : internal_arrays,
             'json_data' : json.dumps(json.dumps( json_data ))
             })
         with open(verilator_cpp_wrapper_path, 'w') as f:
@@ -168,48 +199,91 @@ class PyVerilator:
         for i in range(num_internal_signals):
             self.internal_signals.append((internal_signal_names[i].decode('ascii'), internal_signal_widths[i]))
 
+        # internal arrays
+        num_internal_arrays = ctypes.c_uint32.in_dll(self.lib, '_pyverilator_num_internal_arrays').value
+        internal_array_names = (ctypes.c_char_p * num_internal_arrays).in_dll(self.lib, '_pyverilator_internal_arrays')
+        internal_array_widths = (ctypes.c_uint32 * num_internal_arrays).in_dll(self.lib, '_pyverilator_internal_array_widths')
+        internal_array_depths = (ctypes.c_uint32 * num_internal_arrays).in_dll(self.lib, '_pyverilator_internal_array_depths')
+        self.internal_arrays = []
+        for i in range(num_internal_arrays):
+            self.internal_arrays.append((internal_array_names[i].decode('ascii'), internal_array_widths[i], internal_array_depths[i]))
+
         # json_data
         json_string = ctypes.c_char_p.in_dll(self.lib, '_pyverilator_json_data').value.decode('ascii')
         self.json_data = json.loads(json_string)
 
     def _read(self, port_name):
         port_width = None
+        # port_depth is for arrays
+        port_depth = None
+        for name, width, depth in self.internal_arrays:
+            if port_name == name:
+                port_width = width
+                port_depth = depth
         for name, width in self.inputs + self.outputs + self.internal_signals:
             if port_name == name:
                 port_width = width
+                port_depth = None
         if port_width is None:
             raise ValueError('cannot read port "%s" because it does not exist' % port_name)
         if port_width > 64:
             num_words = (port_width + 31) // 32
-            return self._read_words(port_name, num_words)
+            return self._read_words(port_name, num_words, port_depth)
         elif port_width > 32:
-            return self._read_64(port_name)
+            return self._read_64(port_name, port_depth)
         else:
-            return self._read_32(port_name)
+            return self._read_32(port_name, port_depth)
 
-    def _read_32(self, port_name):
+    def _read_32(self, port_name, port_depth = None):
         fn = getattr(self.lib, 'get_' + port_name)
-        fn.argtypes = [ctypes.c_void_p]
-        fn.restype = ctypes.c_uint32
-        return int(fn(self.model))
+        if port_depth is not None:
+            # this is an array
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            fn.restype = ctypes.c_uint32
+            return [int(fn(self.model, i)) for i in range(port_depth)]
+        else:
+            fn.argtypes = [ctypes.c_void_p]
+            fn.restype = ctypes.c_uint32
+            return int(fn(self.model))
 
-    def _read_64(self, port_name):
+    def _read_64(self, port_name, port_depth = None):
         fn = getattr(self.lib, 'get_' + port_name)
-        fn.argtypes = [ctypes.c_void_p]
-        fn.restype = ctypes.c_uint64
-        return int(fn(self.model))
+        if port_depth is not None:
+            # this is an array
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            fn.restype = ctypes.c_uint64
+            return [int(fn(self.model, i)) for i in range(port_depth)]
+        else:
+            fn.argtypes = [ctypes.c_void_p]
+            fn.restype = ctypes.c_uint64
+            return int(fn(self.model))
 
-    def _read_words(self, port_name, num_words):
+    def _read_words(self, port_name, num_words, port_depth = None):
         fn = getattr(self.lib, 'get_' + port_name)
-        fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        fn.restype = ctypes.c_uint32
-        words = [0] * num_words
-        for i in range(num_words):
-            words[i] = int(fn(self.model, i))
-        out = 0
-        for i in range(num_words):
-            out |= words[i] << (i * 32)
-        return out
+        if port_depth is not None:
+            # this is an array
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int]
+            result = [0] * port_depth
+            for i in range(port_depth):
+                fn.restype = ctypes.c_uint32
+                words = [0] * num_words
+                for i in range(num_words):
+                    words[i] = int(fn(self.model, i))
+                out = 0
+                for i in range(num_words):
+                    out |= words[i] << (i * 32)
+                result[i] = out
+            return result
+        else:
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            fn.restype = ctypes.c_uint32
+            words = [0] * num_words
+            for i in range(num_words):
+                words[i] = int(fn(self.model, i))
+            out = 0
+            for i in range(num_words):
+                out |= words[i] << (i * 32)
+            return out
 
     def _write(self, port_name, value):
         port_width = None

@@ -172,10 +172,18 @@ class TestPyVerilator(unittest.TestCase):
             test_pyverilator['rd_idx'] = idx
             return test_pyverilator['rd_data']
 
+        def check_regs_using_internal_array():
+            reg_file = test_pyverilator['reg_file__DOT__arr']
+            for i in range(32):
+                self.assertEqual(reg_file[i], read_reg(i))
+
         # TODO: add tests for getting values from internal arrays of registers once supported by pyverilator
+
+        self.assertEqual(len(test_pyverilator['reg_file__DOT__arr']), 32)
 
         write_reg( 0, 0 )
         self.assertEqual( read_reg(0), 0 )
+        check_regs_using_internal_array()
 
         write_reg( 1, 3 )
         write_reg( 2, 5 )
@@ -183,18 +191,23 @@ class TestPyVerilator(unittest.TestCase):
         self.assertEqual( read_reg(3), 8 )
         self.assertEqual( read_reg(1), 3 )
         self.assertEqual( read_reg(2), 5 )
+        check_regs_using_internal_array()
 
         write_reg( 4, 11 )
         self.assertEqual( read_reg(3), 8 )
+        check_regs_using_internal_array()
 
         write_reg( 9, 3 )
         self.assertEqual( read_reg(3), 8 )
+        check_regs_using_internal_array()
 
         write_reg( 2, 4 )
+        check_regs_using_internal_array()
 
         write_reg( 1, 5 )
         self.assertEqual( read_reg(9), 3 )
         self.assertEqual( read_reg(1), 5 )
         self.assertEqual( read_reg(2), 4 )
+        check_regs_using_internal_array()
 
         test_pyverilator.stop_vcd_trace()

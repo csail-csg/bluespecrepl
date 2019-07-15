@@ -16,6 +16,10 @@ extern const uint32_t _pyverilator_output_widths[];
 extern const uint32_t _pyverilator_num_internal_signals;
 extern const char* _pyverilator_internal_signals[];
 extern const uint32_t _pyverilator_internal_signal_widths[];
+extern const uint32_t _pyverilator_num_internal_arrays;
+extern const char* _pyverilator_internal_arrays[];
+extern const uint32_t _pyverilator_internal_array_widths[];
+extern const uint32_t _pyverilator_internal_array_depths[];
 extern const uint32_t _pyverilator_num_rules;
 extern const char* _pyverilator_rules[];
 extern const char* _pyverilator_json_data;
@@ -52,6 +56,22 @@ const char* _pyverilator_internal_signals[] = {
 const uint32_t _pyverilator_internal_signal_widths[] = {
 {%- for name, size in internal_signals -%}
     {{ size }},
+{%- endfor -%}
+};
+const uint32_t _pyverilator_num_internal_arrays = {{ internal_arrays|length }};
+const char* _pyverilator_internal_arrays[] = {
+{%- for name, size, depth in internal_arrays -%}
+    "{{ name }}",
+{%- endfor -%}
+};
+const uint32_t _pyverilator_internal_array_widths[] = {
+{%- for name, size, depth in internal_arrays -%}
+    {{ size }},
+{%- endfor -%}
+};
+const uint32_t _pyverilator_internal_array_depths[] = {
+{%- for name, size, depth in internal_arrays -%}
+    {{ depth }},
 {%- endfor -%}
 };
 const uint32_t _pyverilator_num_rules = {{ rules|length }};
@@ -126,6 +146,23 @@ uint32_t get_{{ name }}({{ objtype }}* top) {
 }
 {% endif -%}
 {%- endfor -%}
+{%- endfor %}
+
+// get internal_array values
+{% for name, size, depth in internal_arrays -%}
+{%- if size > 64 -%}
+uint32_t get_{{ name }}({{ objtype }}* top, int word, int index) {
+    return top->{{ name }}[index][word];
+}
+{% elif size > 32 -%}
+uint64_t get_{{ name }}({{ objtype }}* top, int index) {
+    return top->{{ name }}[index];
+}
+{% else -%}
+uint32_t get_{{ name }}({{ objtype }}* top, int index) {
+    return top->{{ name }}[index];
+}
+{% endif -%}
 {%- endfor %}
 
 // set input values
