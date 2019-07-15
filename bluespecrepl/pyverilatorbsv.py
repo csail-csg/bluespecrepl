@@ -381,6 +381,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self.bluetcl.eval('''
             package require Waves
             package require Virtual
+            package require GtkWaveSupport
             Bluetcl::flags set -verilog -p %s:+
             Bluetcl::module load %s
             set v [Waves::start_replay_viewer -e %s -backend -verilog -viewer GtkWave -Command gtkwave -Options -W -StartTimeout 20 -nonbsv_hierarchy /TOP/%s -DumpFile %s]
@@ -406,9 +407,24 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             self.stop_vcd_trace()
 
     def flush_vcd_trace(self):
+        """Flush the vcd trace to disc.
+
+        If a gtkwave window is open, this also updates the window. If the window previously showed
+        the most recent data, then the window is scrolled as necessary to show the newest data."""
         super().flush_vcd_trace()
         if self.gtkwave_active:
-            self.bluetcl.eval('''$v reload_dump_file''')
+            # this gets the max time before and after the dump file is reloaded to see if it changed
+            old_max_time = float(self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::getMaxTime" value\nexpr $value'))
+            self.bluetcl.eval('$v reload_dump_file')
+            new_max_time = float(self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::getMaxTime" value\nexpr $value'))
+            if new_max_time > old_max_time:
+                # if it changed, see if the window could previously see the last data but not anymore
+                window_end_time = float(self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::getWindowEndTime" value\nexpr $value'))
+                if window_end_time >= old_max_time and window_end_time < new_max_time:
+                    # if so, shift the window start so the new data is shown
+                    time_shift_amt = new_max_time - window_end_time
+                    window_start_time = float(self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::getWindowStartTime" value\nexpr $value'))
+                    self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::setWindowStartTime %d" ignore' % (window_start_time + time_shift_amt))
 
     def stop_vcd_trace(self):
         if self.gtkwave_active:
