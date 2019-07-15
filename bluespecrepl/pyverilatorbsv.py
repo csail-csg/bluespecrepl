@@ -376,9 +376,10 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         if self.vcd_filename is None:
             self.start_vcd_trace(PyVerilatorBSV.default_vcd_filename)
         self.gtkwave_active = True
-        self.bluetcl = bluetcl.BlueTCL()
+        self.bluetcl = bluetcl.BlueTCL('bluewish')
         self.bluetcl.start()
         self.bluetcl.eval('''
+            wm withdraw .
             package require Waves
             package require Virtual
             package require GtkWaveSupport
