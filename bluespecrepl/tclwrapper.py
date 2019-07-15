@@ -57,18 +57,19 @@ class TCLWrapper:
 
     reserved_variable_name = 'reservedtcloutputvar'
 
-    def __init__(self, tcl_exe = 'tclsh'):
+    def __init__(self, tcl_exe = 'tclsh', *tcl_exe_args):
         """Creates a TCLWrapper for the specified tcl executable."""
         self._process = None
         self.last_stderr = None
         self.tcl_exe = tcl_exe
+        self.tcl_exe_args = tcl_exe_args
 
     def start(self):
         """Start the tcl background process."""
         if self._process:
             raise TCLWrapperInstanceError('tcl instance already running.')
         self._process = subprocess.Popen(
-            [self.tcl_exe],
+            [self.tcl_exe] + list(self.tcl_exe_args),
             stdin = subprocess.PIPE,
             stdout = subprocess.PIPE,
             stderr = subprocess.PIPE)
