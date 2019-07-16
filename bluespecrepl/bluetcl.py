@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import bluespecrepl.tclwrapper as tclwrapper
+import tclwrapper
 
 # Note: To get more information about bluetcl, run the command "Bluetcl::help" within bluetcl
 

@@ -1,12 +1,15 @@
-# Bluespec REPL
+Bluespec REPL
+=============
 
 A Python-based read-eval-print loop (REPL) environment for debugging Bluespec System Verilog (BSV).
 
 This is currently a work in progress.
 
-## Installing the bluespecrepl Package
+Installing the bluespecrepl Package
+-----------------------------------
 
-### Installing for Development
+Installing for Development
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 To install this package for development, you should use a virtual environment, and install the package in editable mode using pip.
 
@@ -28,28 +31,23 @@ To install the `bluespecrepl` package in editable mode, inside the `bluespec-rep
 
     $ pip3 install -e .
 
-### Installing Non-Development Version
+Installing Non-Development Version
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you want to just install the bluespecrepl package, you should be able to using the following command:
-```
-pip3 install git+ssh://git@github.mit.edu/acwright/bluespec-repl
-```
 
-## Modules
+    $ pip3 install git+ssh://git@github.mit.edu/acwright/bluespec-repl
 
-### bsvproject
+Modules
+-------
+
+bsvproject
+^^^^^^^^^^
 
 Management, compilation, and simulation of BSV projects in python.
 
-### pyverilator
-
-Python interface for verilator simulation.
-
-#### pyverilatorbsv
+pyverilatorbsv
+^^^^^^^^^^^^^^
 
 BSV-specific version of pyverilator that allows for opening up GTKWave and viewing signals using their BSV type.
-
-### tclwrapper
-
-Python interface for programs with tcl interface.
 

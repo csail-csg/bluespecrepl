@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import random
+import pyverilator
 import bluespecrepl.bluetcl as bluetcl
-import bluespecrepl.pyverilator as pyverilator
 
 def mynamedtuple(name, item_names):
     class mynamedtuple_internal:
@@ -182,15 +182,17 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
     default_vcd_filename = 'gtkwave.vcd'
 
     @classmethod
-    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, **kwargs):
-        json_data = {'rules' : rules}
-        return super().build(top_verilog_file, verilog_path, build_dir, json_data, gen_only, **kwargs)
+    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, bsc_build_dir = 'build_dir'):
+        json_data = {'rules' : rules, 'bsc_build_dir' : bsc_build_dir}
+        return super().build(top_verilog_file, verilog_path, build_dir, json_data, gen_only)
 
-    def __init__(self, so_file, module_name = None, bsc_build_dir = None, rules = [], **kwargs):
+    def __init__(self, so_file, bsc_build_dir = None, **kwargs):
         super().__init__(so_file, **kwargs)
         self.rule_names = self.json_data['rules']
-        self.module_name = module_name
-        self.bsc_build_dir = bsc_build_dir
+        if bsc_build_dir is not None:
+            self.bsc_build_dir = bsc_build_dir
+        else:
+            self.bsc_build_dir = self.json_data['bsc_build_dir']
         self.gtkwave_active = False
         self._populate_interface()
         self._populate_rules()

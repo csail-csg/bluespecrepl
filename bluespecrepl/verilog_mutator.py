@@ -5,7 +5,6 @@ import os
 from pyverilog.vparser.parser import parse
 import pyverilog.vparser.ast as ast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator, ConvertVisitor
-import jinja2
 
 class CustomizedASTCodeGenerator(ASTCodeGenerator):
     '''Same as ASTCodeGenerator except for adding newlines between signal

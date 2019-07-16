@@ -22,6 +22,10 @@ class TestBSVProject(unittest.TestCase):
                 ''')
         proj = bsvproject.BSVProject(top_file = 'Test.bsv', top_module = 'mkTest')
 
+        proj.export_bspec_project_file('test.bspec')
+        # check for project file output
+        self.assertTrue(os.path.isfile('test.bspec'))
+
         proj.compile_verilog()
         # check for verilog output
         self.assertTrue(os.path.isfile(os.path.join('verilog_dir','mkTest.v')))

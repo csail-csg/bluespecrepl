@@ -6,16 +6,11 @@ import re
 import glob
 import subprocess
 import shutil
-import jinja2
 import warnings
-import bluespecrepl.tclwrapper as tclwrapper
+import tclwrapper
+from tclwrapper.tclutil import *
 import bluespecrepl.verilog_mutator as verilog_mutator
 import bluespecrepl.pyverilatorbsv as pyverilatorbsv
-from bluespecrepl.tclutil import *
-
-_template_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
-_jinja2_env = jinja2.Environment(loader = jinja2.FileSystemLoader(_template_path))
-_bspec_project_file_template = _jinja2_env.get_template('template.bspec')
 
 class BSVProject:
     """Bluespec System Verilog Project class.
@@ -210,7 +205,6 @@ class BSVProject:
                 verilog_path = [verilator_dir] + self.v_path,
                 build_dir = verilator_dir,
                 rules = rules,
-                module_name = self.top_module,
                 bsc_build_dir = self.build_dir)
 
     def clean(self):
@@ -259,9 +253,10 @@ class BSVProject:
         """Export project settings to a .bspec file.
 
         This does not export v_path."""
+        with open(os.path.join(os.path.realpath(os.path.dirname(os.path.realpath(__file__))), 'templates', 'template.bspec')) as f:
+            bspec_project_template = f.read()
         params = self.export_bspec_config_params()
-        # use jinja2 and the template in templates/template.bspec to create the project file
-        bspec_project_text = _bspec_project_file_template.render(params)
+        bspec_project_text = bspec_project_template.format(**params)
         with open(filename, 'w') as f:
             f.write(bspec_project_text)
 
