@@ -31,7 +31,7 @@ setup(
     packages=find_packages(exclude=['examples', 'tests', 'util']),
     include_package_data=True,
     install_requires=[
-        'pyverilator',
+        'pyverilator>=0.1.1',
         'tclwrapper',
         'pyverilog', #pyverilog (1.1.1)
     ],
