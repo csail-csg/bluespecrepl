@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 class VCD:
     """Class for reading VCD files."""
 
@@ -85,14 +83,3 @@ class VCD:
     def get_signal_value(self, signal_name):
         """Get the most recent value for the specified signal."""
         return self.signal_values[self.signal_codes[signal_name]]
-
-if __name__ == '__main__':
-    import sys
-    filename = sys.argv[1]
-    print('VCD File: ' + filename)
-    vcd = VCD(filename)
-    signals = vcd.get_signals()
-    print('Final Values:')
-    for signal in signals:
-        print(signal + ' = ' + str(vcd.get_signal_value(signal)))
-

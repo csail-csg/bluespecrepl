@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import random
 import pyverilator
 import bluespecrepl.bluetcl as bluetcl

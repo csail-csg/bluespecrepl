@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import tclwrapper
 
 # Note: To get more information about bluetcl, run the command "Bluetcl::help" within bluetcl

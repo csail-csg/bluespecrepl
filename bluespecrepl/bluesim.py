@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import warnings
 import bluespecrepl.bluetcl as bluetcl
 

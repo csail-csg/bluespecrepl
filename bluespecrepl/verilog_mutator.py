@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import io
 import os
 from pyverilog.vparser.parser import parse
@@ -293,38 +291,3 @@ class VerilogMutator:
             self.add_assign('WILL_FIRE', ast.Concat(will_fires))
 
         return total_num_bits
-
-if __name__ == '__main__':
-    import sys
-    verilog_path_and_filename = sys.argv[1]
-    if verilog_path_and_filename[-2:] != '.v':
-        raise ValueError('Input filename should end in ".v"')
-    verilog_path = os.path.dirname(os.path.realpath(verilog_path_and_filename))
-    verilog_filename = os.path.basename(os.path.realpath(verilog_path_and_filename))
-    verilog_project = VerilogProject(verilog_filename[:-2], verilog_path)
-    mutator = verilog_project.modules[verilog_project.top]
-
-    out_path = 'out'
-    try:
-        os.mkdir(out_path)
-    except FileExistsError:
-        pass
-
-    with open(out_path + '/' + verilog_filename[:-2] + '_ast.txt', 'w') as f:
-        f.write(mutator.get_ast())
-    with open(out_path + '/' + verilog_filename[:-2] + '_hierarchy.txt', 'w') as f:
-        f.write(verilog_project.get_hierarchy())
-    with open(out_path + '/' + verilog_filename[:-2] + '_passthrough.v', 'w') as f:
-        f.write(mutator.get_verilog())
-
-    rule_names = mutator.get_rules_in_scheduling_order()
-
-    with open(out_path + '/' + verilog_filename[:-2] + '_rules.txt', 'w') as f:
-        f.write('\n'.join(rule_names) + '\n')
-
-    verilog_project.expose_fire_signals_hierarchically()
-
-    verilog_project.write_verilog(out_path)
-
-    with open(out_path + '/' + verilog_filename[:-2] + '_wrapper.cpp', 'w') as f:
-        f.write(verilog_project.generate_verilator_cpp_wrapper())

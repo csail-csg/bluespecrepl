@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import sys
 import os
 import re
@@ -643,29 +641,3 @@ class BluespecModule:
                     conflict = True
         if conflict:
             print('module {} has an urgency and conflicts with the execution order'.format(self.name))
-
-if __name__ == '__main__':
-    bsv_module_text='''(* noinline *)
-    function Bit#(8) do_addition( Bit#(8) a, Bit#(8) b );
-        return a + b;
-    endfunction'''
-    module_name = 'module_do_addition'
-    bsv_file = 'Test.bsv'
-
-    warnings.simplefilter('ignore')
-
-    if not os.path.exists('test_bsvproject'):
-        os.makedirs('test_bsvproject')
-    os.chdir('test_bsvproject')
-
-    with open(bsv_file, 'w') as f:
-        f.write(bsv_module_text)
-
-    project = BSVProject(top_module = module_name, top_file = bsv_file)
-    repl = project.gen_python_repl()
-    tests = [(0, 0), (1, 2), (3, 6), (255, 1), (255, 2)]
-    for x, y in tests:
-        repl['do_addition_a'] = x
-        repl['do_addition_b'] = y
-        out = repl['do_addition']
-        print('%d + %d = %d' % (x, y, out))
