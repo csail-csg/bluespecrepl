@@ -198,6 +198,14 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         self._populate_rules()
         self._populate_internal()
         self._populate_submodules()
+        # reset the design
+        if 'CLK' in self and 'RST_N' in self:
+            self['RST_N'] = 0
+            self['CLK'] = 0
+            self['CLK'] = 1
+            self['CLK'] = 0
+            self['CLK'] = 1
+            self['RST_N'] = 1
 
     def _populate_interface(self):
         # look for ready outputs to get all the interface method names
