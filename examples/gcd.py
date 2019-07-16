@@ -120,13 +120,8 @@ sim.send_reg_to_gtkwave('y')
 # when it is sent to gtkwave, it will display the enumeration value names
 sim.send_reg_to_gtkwave('state')
 
-# wait until the user presses ctrl-c
-try:
-    print('\nPress ctrl-c to quit...')
-    while True:
-        pass
-except KeyboardInterrupt as e:
-    pass
+# wait until the user presses enter
+input('\nPress enter to quit...')
 
 # close everything
 sim.stop_gtkwave()
