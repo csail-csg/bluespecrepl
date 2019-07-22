@@ -1,58 +1,23 @@
 import random
 import pyverilator
 import bluespecrepl.bluetcl as bluetcl
-
-def mynamedtuple(name, item_names):
-    class mynamedtuple_internal:
-        _item_names = item_names
-        _item_dict = {}
-        def __init__(self, item_dict):
-            for item in item_dict:
-                self._item_dict[item] = item_dict[item]
-        def __setattr__(self, *args):
-            raise BaseException('setting items not allowed')
-        def __getattr__(self, arg):
-            return self._item_dict[arg]
-        def __getitem__(self, index):
-            return self._item_dict[self._item_names[index]]
-        def __repr__(self):
-            ret = ''
-            for item_name in self._item_names:
-                ret += item_name + ': ' + repr(self._item_dict[item_name])
-            return ret
-        def __iter__(self):
-            for item in self._item_names:
-                yield self._item_dict[item]
-        def __len__(self):
-            return len(self._item_names)
-    return mynamedtuple_internal
+from tclwrapper import tclstring_to_nested_list
 
 class BSVInterfaceMethod:
-    def __init__(self, sim, *args, ready = None, enable = None, output = None):
-        if ready is None or not ready.startswith('RDY_'):
-            raise ValueError('BSVInterfaceMethod requires a ready signal that starts with RDY_')
+    def __init__(self, sim, name, args = [], ready = None, enable = None, output = None):
         self.sim = sim
+        self.name = name
+        # args is list of (bsv_name, signal, type)
+        # bsv_name is not really the name used in the BSV source code
         self.args = args
         self.ready = ready
         self.enable = enable
+        # output is none or (signal, type)
         self.output = output
-        self.__doc__ = 'Interface method %s.\n\n' % ready[4:]
-        self.__doc__ += 'Arguments:\n'
-        if args:
-            for arg in args:
-                self.__doc__ += '    %s\n' % arg
-        else:
-            self.__doc__ += '    (none)\n'
-        if output:
-            self.__doc__ += 'Output Signal:\n    %s\n' % output
-        if ready:
-            self.__doc__ += 'Ready Signal:\n    %s\n' % ready
-        if enable:
-            self.__doc__ += 'Enable Signal:\n    %s\n' % enable
 
     def is_ready(self):
         if self.ready:
-            return bool(self.sim[self.ready])
+            return bool(self.ready.value)
         else:
             return True
 
@@ -62,42 +27,66 @@ class BSVInterfaceMethod:
         if len(call_args) != len(self.args):
             raise Exception('wrong number of arguments')
         for i in range(len(self.args)):
-            self.sim[self.args[i]] = call_args[i]
+            self.args[i][1].write(call_args[i])
         if self.enable:
-            self.sim[self.enable] = 1
+            self.enable.write(1)
         ret = None
         if self.output:
-            ret = self.sim[self.output]
+            ret = self.output[0].value
         if self.enable:
             self.sim.step(1)
-            self.sim[self.enable] = 0
+            self.enable.write(0)
         return ret
 
+    def send_to_gtkwave(self):
+        if self.ready is not None:
+            self.sim.send_signal_to_gtkwave(self.ready)
+        if self.enable is not None:
+            self.sim.send_signal_to_gtkwave(self.enable)
+        for _, sig, _ in self.args:
+            self.sim.send_signal_to_gtkwave(sig)
+        if self.output is not None:
+            self.sim.send_signal_to_gtkwave(self.output[0])
+
+    def bsv_decl(self):
+        if self.output is None:
+            output_type = 'Action'
+        else:
+            if self.enable is not None:
+                output_type = 'ActionValue#(%s)' % self.output[1]
+            else:
+                output_type = self.output[1]
+        args = [ arg_type + ' ' + bsv_name for bsv_name, _, arg_type in self.args ]
+        decl = '{} {}({})'.format(output_type, self.name, ', '.join(args))
+        return decl
+
+    @property
+    def status(self):
+        return self.bsv_decl() + (' READY' if self.is_ready() else ' NOT_READY')
+
     def __str__(self):
-        method_name = self.ready[4:] # drop RDY_
-        arg_names = [arg[len(method_name)+1:] for arg in self.args]
-        return method_name + '(' + ', '.join(arg_names) + ')'
+        return self.bsv_decl()
 
     def __repr__(self):
-        method_name = self.ready[4:] # drop RDY_
-        arg_names = [arg[len(method_name)+1:] for arg in self.args]
-        return '<' + str(self) + ('' if self.is_ready() else ' NOT_READY') + '>'
+        return self.bsv_decl() + (' READY' if self.is_ready() else ' NOT_READY')
 
 class BSVRule:
-    def __init__(self, sim, name, index):
+    def __init__(self, sim, name, index, can_fire_signal = None, will_fire_signal = None):
         self.sim = sim
         self.name = name
         self.index = index
+        self.can_fire_signal = can_fire_signal
+        self.will_fire_signal = will_fire_signal
         self.__doc__ = 'Rule %s.\n' % self.name
 
     def _get_index_of(self, port_name):
-        return (self.sim[port_name] >> self.index) & 1
+        return (self.sim.io[port_name].value >> self.index) & 1
 
     def _set_index_of(self, port_name, value):
         if value == 0:
-            self.sim[port_name] &= ~(1 << self.index)
+            self.sim.io[port_name].value &= ~(1 << self.index)
         elif value == 1:
-            self.sim[port_name] |= 1 << self.index
+            self.sim.io[port_name].value |= 1 << self.index
         else:
             raise ValueError('value should be a 0 or a 1')
 
@@ -108,7 +97,7 @@ class BSVRule:
         return bool(self._get_index_of('WILL_FIRE'))
 
     def get_force_fire(self):
-        if 'FORCE_FIRE' in self.sim:
+        if 'FORCE_FIRE' in self.sim.io:
             return bool(self._get_index_of('FORCE_FIRE'))
         else:
             return False
@@ -126,30 +115,59 @@ class BSVRule:
         if not self.get_can_fire():
             raise Exception('The guard for this rule is not true')
 
-        old_block_fire = self.sim['BLOCK_FIRE']
-        if 'FORCE_FIRE' in self.sim:
-            old_force_fire = self.sim['FORCE_FIRE']
+        old_block_fire = self.sim.io.BLOCK_FIRE.value
+        if 'FORCE_FIRE' in self.sim.io:
+            old_force_fire = self.sim.io.FORCE_FIRE.value
 
-        self.sim['BLOCK_FIRE'] = ~(1 << self.index)
-        if 'FORCE_FIRE' in self.sim:
-            self.sim['FORCE_FIRE'] = 0
+        self.sim.io.BLOCK_FIRE = ~(1 << self.index)
+        if 'FORCE_FIRE' in self.sim.io:
+            self.sim.io.FORCE_FIRE = 0
 
         if not self.get_can_fire():
-            self.sim['BLOCK_FIRE'] = old_block_fire
-            if 'FORCE_FIRE' in self.sim:
-                self.sim['FORCE_FIRE'] = old_force_fire
+            self.sim.io.BLOCK_FIRE = old_block_fire
+            if 'FORCE_FIRE' in self.sim.io:
+                self.sim.io.FORCE_FIRE = old_force_fire
             raise Exception('The guard for this rule is not true if all other rules are blocked. This can happen if this rule depends on another rule firing in the same cycle.')
         if not self.get_will_fire():
-            self.sim['BLOCK_FIRE'] = old_block_fire
-            if 'FORCE_FIRE' in self.sim:
-                self.sim['FORCE_FIRE'] = old_force_fire
+            self.sim.io.BLOCK_FIRE = old_block_fire
+            if 'FORCE_FIRE' in self.sim.io:
+                self.sim.io.FORCE_FIRE = old_force_fire
             raise Exception('This rule is blocked even though all other rules are blocked. This should not be possible.')
 
         self.sim.step(1)
 
-        self.sim['BLOCK_FIRE'] = old_block_fire
-        if 'FORCE_FIRE' in self.sim:
-            self.sim['FORCE_FIRE'] = old_force_fire
+        self.sim.io.BLOCK_FIRE = old_block_fire
+        if 'FORCE_FIRE' in self.sim.io:
+            self.sim.io.FORCE_FIRE = old_force_fire
+
+    def send_to_gtkwave(self):
+        if self.can_fire_signal is not None:
+            self.sim.send_signal_to_gtkwave(self.can_fire_signal)
+        if self.will_fire_signal is not None:
+            self.sim.send_signal_to_gtkwave(self.will_fire_signal)
+
+    @property
+    def can_fire(self):
+        if self.can_fire_signal is not None:
+            return self.can_fire_signal.collection_get()
+        else:
+            return self.get_can_fire()
+
+    @property
+    def will_fire(self):
+        if self.will_fire_signal is not None:
+            return self.will_fire_signal.collection_get()
+        else:
+            return self.get_will_fire()
+
+    @property
+    def status(self):
+        if not self.get_can_fire():
+            return 'Not Ready'
+        elif not self.get_will_fire():
+            return 'Can Fire (Blocked)'
+        else:
+            return 'Will Fire'
 
     def __str__(self):
         return 'rule ' + self.name
@@ -180,8 +198,8 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
     default_vcd_filename = 'gtkwave.vcd'
 
     @classmethod
-    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', rules = [], gen_only = False, bsc_build_dir = 'build_dir'):
-        json_data = {'rules' : rules, 'bsc_build_dir' : bsc_build_dir}
+    def build(cls, top_verilog_file, verilog_path = [], build_dir = 'obj_dir', interface = [], rules = [], gen_only = False, bsc_build_dir = 'build_dir'):
+        json_data = {'interface' : interface, 'rules' : rules, 'bsc_build_dir' : bsc_build_dir}
         return super().build(top_verilog_file, verilog_path, build_dir, json_data, gen_only)
 
     def __init__(self, so_file, bsc_build_dir = None, **kwargs):
@@ -193,9 +211,10 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             self.bsc_build_dir = self.json_data['bsc_build_dir']
         self.gtkwave_active = False
         self._populate_interface()
+        self._populate_signal_translation()
+        self._populate_bsv_internals()
         self._populate_rules()
-        self._populate_internal()
-        self._populate_submodules()
+        self._populate_bsv_collection()
         # reset the design
         if 'CLK' in self and 'RST_N' in self:
             self['RST_N'] = 0
@@ -206,179 +225,219 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             self['RST_N'] = 1
 
     def _populate_interface(self):
-        # look for ready outputs to get all the interface method names
-        method_names = []
-        for output_name, width in self.outputs:
-            if output_name.startswith('RDY_'):
-                method_names.append(output_name[4:])
-        # now populate the signals of each interface method
+        interface_json = self.json_data['interface']
+        def get_signal(sig_name):
+            if sig_name == '' or sig_name is None:
+                return None
+            else:
+                return self.io[sig_name].signal
+        # interface_json is a list of methods which are
+        # dictionaries containing name, ready, enable, args, result
         methods = {}
-        for method_name in method_names:
-            # initialize method signals
-            method_inputs = []
-            method_output = None
-            enable_signal = None
-            ready_signal = 'RDY_' + method_name
-            for name, width in self.outputs:
-                if name == method_name:
-                    method_output = name
-            for name, width in self.inputs:
-                if name == ('EN_' + method_name):
-                    enable_signal = name
-                if name.startswith(method_name + '_'):
-                    method_inputs.append(name)
-            methods[method_name] = BSVInterfaceMethod(self, *method_inputs, ready = ready_signal, enable = enable_signal, output = method_output)
-        # now fill in a named tuple containing all the interface methods
-        # note: using a named tuple here adds some contraints to interface
-        # method names
-        class Interface(mynamedtuple('Interface', method_names)):
-            def __repr__(self):
-                ret = 'interface:'
-                for i in self:
-                    ret += '\n    ' + str(i)
-                    if not i.is_ready():
-                        ret += '    NOT_READY'
-                return ret
-        self.interface = Interface(methods)
+        for interface in interface_json:
+            name = interface['name']
+            ready = get_signal(interface['ready'])
+            enable = get_signal(interface['enable'])
+            args = [(bsv_name, self.io[verilog_name].signal, type_name) for bsv_name, verilog_name, type_name in interface['args']]
+            result = interface['result']
+            if result is not None:
+                verilog_name, type_name = result
+                result = (self.io[verilog_name].signal, type_name)
+            methods[name] = BSVInterfaceMethod(self, name, args, ready, enable, result)
+        self.interface = pyverilator.Collection(methods)
 
     def _populate_rules(self):
-        self.rules = self._get_rules()
+        # self.rule_names has the names of all the rules in the order they
+        # appear in CAN_FIRE, WILL_FIRE, BLOCK_FIRE, and if applicable,
+        # FORCE_FIRE
 
-    def _get_rules(self, submodule = None):
-        rule_dict = {}
-        rule_names = []
-        for i in range(len(self.rule_names)):
-            if submodule is not None:
-                rule_submodule = self.rule_names[i].split('__DOT__')[:-1]
-                if rule_submodule != submodule:
-                    continue
-                rule_short_name = self.rule_names[i].split('__DOT__')[-1]
-                rule_dict[rule_short_name] = BSVRule(self, rule_short_name, i)
-                rule_names.append(rule_short_name)
+        # To understand the different forms of rule names, consider the rule
+        # "doStuff" that is in an unsynthesized "fifo" submodule that is
+        # within a synthesized "submod" submodule of the top module.
+
+        # In self.rule_names, this rule has the name "submod__DOT__RL_fifo_doStuff"
+
+        # In the Virtual package in BlueTCL, rule names are split into names and
+        # paths, and both names and paths have a bsv version and a synth version.
+        # The above rule has the following names:
+        #   path synth: "/submod"
+        #   name synth: "RL_fifo_doStuff"
+        #   path bsv: "/submod/fifo/doStuff"
+        #   name bsv: "doStuff"
+
+        # mapping from synth names to bsv names
+        bsv_rule_translations = {}
+        # bsv rule names (full path as tuple) in same order as self.rule_names
+        bsv_rule_names = []
+
+        with bluetcl.BlueTCL() as tcl:
+            # [(bsv_name, bsv_path, synth_name, synth_path)]
+            bluetcl_rule_names = tclstring_to_nested_list(tcl.eval('''
+                package require Virtual
+                Bluetcl::flags set -verilog -p %s:+
+                Bluetcl::module load %s
+                set rules [Virtual::inst filter -kind Rule *]
+                set out {}
+                foreach rule $rules {
+                    set x {}
+                    lappend x [$rule name bsv]
+                    lappend x [$rule path bsv]
+                    lappend x [$rule name synth]
+                    lappend x [$rule path synth]
+                    lappend out $x
+                }
+                return -level 0 $out
+                ''' % (self.bsc_build_dir, self.module_name)))
+            rule_signal_names = tclstring_to_nested_list(tcl.eval('''
+                set signals [Virtual::signal filter *]
+                set out {}
+                foreach sig $signals {
+                    if {[$sig kind] != "Signal"} {
+                        set x {}
+                        lappend x [$sig name]
+                        lappend x [$sig path bsv]
+                        lappend x [$sig path synth]
+                        lappend out $x
+                    }
+                }
+                return -level 0 $out
+                '''))
+        # if there is only zero or one rule, bluetcl_rule_names needs to be fixed up
+        if isinstance(bluetcl_rule_names, str):
+            if bluetcl_rule_names == '':
+                bluetcl_rule_names = []
             else:
-                rule_dict[self.rule_names[i]] = BSVRule(self, self.rule_names[i], i)
-                rule_names.append(self.rule_names[i])
-        class Rules(mynamedtuple('Rules', rule_names)):
-            def __repr__(self):
-                ret = 'rules:'
-                for i in self:
-                    ret += '\n    ' + str(i)
-                    if i.get_force_fire():
-                        ret += '    FORCE_FIRE'
-                        if not i.get_can_fire():
-                            ret += ' (CAN_FIRE is false)'
-                    elif i.get_block_fire():
-                        ret += '    BLOCK_FIRE'
-                        if i.get_can_fire():
-                            ret += ' (CAN_FIRE is true)'
-                    elif i.get_will_fire():
-                        ret += '    WILL_FIRE'
-                    elif i.get_can_fire():
-                        ret += '    CAN_FIRE (WILL_FIRE is false)'
-                    else:
-                        ret += '    (CAN_FIRE is false)'
-                return ret
-        return Rules(rule_dict)
-
-    def _populate_internal(self):
-        self.internal = self._get_internal()
-
-    def _get_internal(self, submodule = None):
-        signal_names = []
-        signal_dict = {}
-        for signal_name, signal_width in self.internal_signals:
-            # '__024' is from having a $ is the signal name
-            if 'CAN_FIRE_' in signal_name or 'WILL_FIRE_' in signal_name or '__024' in signal_name:
-                continue
-            # __DOT__ is used by verilator and bluespecrepl to denote module boundaries
-            split_name = signal_name.split('__DOT__')
-            # signal name without the top module's name
-            short_name = signal_name.split('__DOT__', 1)[1]
-            final_name = split_name[-1]
-            signal_submodule = split_name[1:-1]
-            if short_name.startswith('_') or final_name.startswith('_'):
-                continue
-            if submodule is not None:
-                if signal_submodule != submodule:
-                    continue
-                signal_names.append(final_name)
-                signal_dict[final_name] = BSVSignal(self, final_name, signal_name, signal_width)
+                bluetcl_rule_names = [bluetcl_rule_names.split()]
+        # we can get all the bsv name information from bsv_path, so
+        # we don't need to use bsv_name from bluetcl_rule_names
+        for _, bsv_path, synth_name, synth_path in bluetcl_rule_names:
+            # remove leading '/' and replace others with '__DOT__'
+            verilog_name = synth_path[1:].replace('/', '__DOT__')
+            if verilog_name != "":
+                verilog_name += '__DOT__' + synth_name
             else:
-                signal_names.append(short_name)
-                signal_dict[short_name] = BSVSignal(self, short_name, signal_name, signal_width)
-        signal_names.sort()
-        class Internal(mynamedtuple('Internal', signal_names)):
-            def __repr__(self):
-                ret = 'internal:'
-                for i in self:
-                    ret += '\n    ' + str(i) + ' = ' + hex(i.get_value())
-                return ret
-        return Internal(signal_dict)
+                verilog_name = synth_name
+            full_bsv_name = tuple(bsv_path[1:].split('/'))
+            bsv_rule_translations[verilog_name] = full_bsv_name
 
-    def _get_submodules(self):
-        # first use internal_signals, then use rules
-        # this will (probably) return [] as one of the submodules representing to top level
-        submodules = []
-        for signal_name, signal_width in self.internal_signals:
-            if 'CAN_FIRE_' in signal_name or 'WILL_FIRE_' in signal_name or '__024' in signal_name:
+        # get the bsv rule names in the same order as self.rule_names
+        for verilog_rule_name in self.rule_names:
+            bsv_rule_names.append( bsv_rule_translations[verilog_rule_name] )
+
+        # look for WILL_FIRE/CAN_FIRE signals
+        will_fire_signals = {}
+        can_fire_signals = {}
+        for synth_path, bsv_path in self.synth_to_bsv_path_translation.items():
+            # use get on all_signals so if verilator optimized out a CAN_FIRE_*
+            # or WILL_FIRE_* signal, the rule can still get the relevant info
+            # from the 'CAN_FIRE' and 'WILL_FIRE' io signals.
+            if bsv_path[-1].startswith('WILL_FIRE'):
+                will_fire_signals[bsv_path[:-1]] = self.all_signals.get(synth_path)
+            if bsv_path[-1].startswith('CAN_FIRE'):
+                can_fire_signals[bsv_path[:-1]] = self.all_signals.get(synth_path)
+
+        # construct a dict of rules that preserves the BSV module hierarchy
+        self.all_rules = {}
+        for i in range(len(bsv_rule_names)):
+            bsv_rule_name = bsv_rule_names[i]
+            self.all_rules[bsv_rule_name] = BSVRule(self, bsv_rule_name[-1], i, can_fire_signals[bsv_rule_name], will_fire_signals[bsv_rule_name])
+        self.rules = pyverilator.Collection.build_nested_collection(self.all_rules, nested_class = pyverilator.Submodule)
+
+    def _populate_signal_translation(self):
+        """Constructs a dictionaries to translate signals and modular hierarchs to bsv names."""
+        with bluetcl.BlueTCL() as tcl:
+            tcl.eval('''
+                package require Virtual
+                Bluetcl::flags set -verilog -p %s:+
+                Bluetcl::module load %s
+                ''' % (self.bsc_build_dir, self.module_name))
+            # [(bsv_name, bsv_path, synth_path)]
+            # examples:
+            #   (Q_OUT, /state/Q_OUT, /state/Q_OUT)
+            #   (RDY_result, /RDY_result, /RDY_result)
+            signal_names = tclstring_to_nested_list(tcl.eval('''
+                set signals [Virtual::signal filter *]
+                set out {}
+                foreach sig $signals {
+                    set x {}
+                    lappend x [$sig name]
+                    lappend x [$sig path bsv]
+                    lappend x [$sig path synth]
+                    lappend out $x
+                }
+                return -level 0 $out
+                '''))
+            # [(bsv_name, bsv_path)]
+            prim_modules = tclstring_to_nested_list(tcl.eval('''
+                set insts [Virtual::inst filter -kind Prim *]
+                set out {}
+                foreach inst $insts {
+                    set x {}
+                    lappend x [$inst name bsv]
+                    lappend x [$inst path bsv]
+                    lappend x [$inst name synth]
+                    lappend x [$inst path synth]
+                    lappend out $x
+                }
+                return -level 0 $out
+            '''))
+        # for bsv module hierarchy
+        self.synth_to_bsv_path_translation = {}
+        for _, bsv_path, synth_path in signal_names:
+            # remove leading '/' and split at '/'
+            real_synth_path = tuple(synth_path[1:].split('/'))
+            real_bsv_path = tuple(bsv_path[1:].split('/'))
+            self.synth_to_bsv_path_translation[real_synth_path] = real_bsv_path
+        for _, bsv_path, _, synth_path in prim_modules:
+            # remove leading '/' and split at '/'
+            real_synth_path = tuple(synth_path[1:].split('/'))
+            real_bsv_path = tuple(bsv_path[1:].split('/'))
+            self.synth_to_bsv_path_translation[real_synth_path] = real_bsv_path
+        # for sending signals to gtkwave
+        # goal: /m_submodule/reg -> /m/submodule/reg/Q_OUT
+        # goal: /m_submodule/reg$D_IN -> /m/submodule/reg/D_IN
+        self.synth_to_bsv_signal_translation = {}
+        for _, bsv_path, synth_path in signal_names:
+            real_synth_path = tuple(synth_path[1:].split('/'))
+            if real_synth_path[-1] == 'Q_OUT':
+                real_synth_path = real_synth_path[:-1]
+            if real_synth_path not in self.all_signals and len(real_synth_path) > 1:
+                alt_synth_path = (*real_synth_path[:-2], real_synth_path[-2] + '$' + real_synth_path[-1])
+                if alt_synth_path in self.all_signals:
+                    real_synth_path = alt_synth_path
+            if real_synth_path in self.all_signals:
+                self.synth_to_bsv_signal_translation[real_synth_path] = bsv_path
+        # check coverage
+        # synth only signals are expected for imported Verilog
+        synth_only_signals = []
+        for synth_path in self.all_signals:
+            if synth_path == ('CAN_FIRE',) or synth_path == ('WILL_FIRE',) or synth_path == ('BLOCK_FIRE',) or synth_path == ('FORCE_FIRE',):
+                # these are expected to be synth-only paths
                 continue
-            submodule_name = signal_name.split('__DOT__')[1:-1]
-            if submodule_name not in submodules:
-                submodules.append(submodule_name)
-        for rule_name in self.rule_names:
-            submodule_name = rule_name.split('__DOT__')[:-1]
-            if submodule_name not in submodules:
-                submodules.append(submodule_name)
-        submodules.sort()
-        return submodules
+            if synth_path not in self.synth_to_bsv_signal_translation:
+                synth_only_signals.append(synth_path)
+        if len(synth_only_signals) != 0:
+            print('Warning: %d signals were found in the Verilog that have no corresponding BSV signal name' % len(synth_only_signals))
 
-    def _populate_submodules(self):
-        submodules = self._get_submodules()
-        submodules_by_depth = {}
-        max_depth = 0
-        for submodule in submodules:
-            depth = len(submodule)
-            if depth > max_depth:
-                max_depth = depth
-            if depth not in submodules_by_depth:
-                submodules_by_depth[depth] = [submodule]
-            else:
-                submodules_by_depth[depth].append(submodule)
-        # get rules and internals for each submodule
-        populated_submodules = {}
-        for d in range(max_depth, -1, -1):
-            for submodule in submodules_by_depth.get(d, []):
-                rules = self._get_rules(submodule)
-                internals = self._get_internal(submodule)
-                submodule_dot_name = '.'.join(submodule)
-                child_depth = len(submodule) + 1
-                child_submodule_names = [x for x in submodules_by_depth.get(child_depth, []) if x[:len(submodule)] == submodule]
-                child_submodules = { x[-1] : populated_submodules['.'.join(x)] for x in child_submodule_names }
-                child_submodule_short_names = list(child_submodules.keys())
-                child_submodule_short_names.sort()
-                class Submodule(mynamedtuple(submodule_dot_name, ['full_name', *child_submodule_short_names, 'rules', 'internals'])):
-                    def __repr__(self):
-                        ret = 'current module: ' + self[0]
-                        ret += '\nsubmodules:'
-                        for i in range(1, len(self) - 2):
-                            ret += '\n    ' + self[i][0].split('.')[-1]
-                        ret += '\n' + repr(self.rules)
-                        ret += '\n' + repr(self.internals)
-                        return ret
-                submodule_dict = child_submodules.copy()
-                if submodule_dot_name == '':
-                    submodule_dict['full_name'] = '(TOP)'
-                else:
-                    submodule_dict['full_name'] = submodule_dot_name
-                submodule_dict['rules'] = rules
-                submodule_dict['internals'] = internals
-                populated_submodules[submodule_dot_name] = Submodule(submodule_dict)
-        if '' in populated_submodules:
-            # only populate the submodules if at least one submodule was found
-            self.modular = populated_submodules['']
+    def _populate_bsv_internals(self):
+        self.all_bsv_signals = {}
+        for synth_signal_path, signal in self.all_signals.items():
+            if synth_signal_path in self.synth_to_bsv_path_translation:
+                self.all_bsv_signals[self.synth_to_bsv_path_translation[synth_signal_path]] = signal
+        # remove IO and CanFire/WillFire signals (they will go in rules)
+        internal_signals = { bsv_path: sig for bsv_path, sig in self.all_bsv_signals.items() if isinstance(sig, pyverilator.InternalSignal) and not bsv_path[-1].startswith('CAN_FIRE') and not bsv_path[-1].startswith('WILL_FIRE') }
+        self.bsv_internals = pyverilator.Collection.build_nested_collection(internal_signals, nested_class = pyverilator.Submodule)
+
+    def _populate_bsv_collection(self):
+        self.all_bsv = { bsv_path: sig for bsv_path, sig in self.all_bsv_signals.items() if isinstance(sig, pyverilator.InternalSignal) and not bsv_path[-1].startswith('CAN_FIRE') and not bsv_path[-1].startswith('WILL_FIRE') }
+        for k, v in self.all_rules.items():
+            self.all_bsv[k] = v
+        for method_name in self.interface:
+            self.all_bsv[(method_name,)] = self.interface[method_name]
+        self.bsv = pyverilator.Collection.build_nested_collection(self.all_bsv, nested_class = pyverilator.Submodule)
 
     def __repr__(self):
-        return repr(self.interface) + '\n' + repr(self.rules) + '\n' + repr(self.internal)
+        return repr(self.interface) + '\n' + repr(self.rules)
 
     def start_gtkwave(self):
         if self.vcd_filename is None:
@@ -396,15 +455,15 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             set v [Waves::start_replay_viewer -e %s -backend -verilog -viewer GtkWave -Command gtkwave -Options -W -StartTimeout 20 -nonbsv_hierarchy /TOP/%s -DumpFile %s]
             $v start''' % (self.bsc_build_dir, self.module_name, self.module_name, self.module_name, self.vcd_filename))
 
-    def send_reg_to_gtkwave(self, reg_name):
-        if not self.gtkwave_active:
-            raise ValueError('send_reg_to_gtkwave() requires GTKWave to be started using start_gtkwave()')
-        self.bluetcl.eval('$v send_instance [lindex [Virtual::inst filter %s] 0] QOUT' % reg_name)
-
     def send_signal_to_gtkwave(self, signal_name):
+        """PyVerilator BSV-specific method for sending a Signal to GTKWave."""
         if not self.gtkwave_active:
             raise ValueError('send_reg_to_gtkwave() requires GTKWave to be started using start_gtkwave()')
-        self.bluetcl.eval('$v send_objects [Virtual::signal filter %s]' % signal_name)
+        if isinstance(signal_name, pyverilator.Signal):
+            bsv_name = self.synth_to_bsv_signal_translation[signal_name.modular_name]
+            self.bluetcl.eval('$v send_objects [Virtual::signal filter {%s}]' % bsv_name)
+        else:
+            raise TypeError('PyVerilatorBSV.send_signal_to_gtkwave only supports pyverilator.Signals')
 
     def stop_gtkwave(self):
         if not self.gtkwave_active:
@@ -415,12 +474,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         if self.vcd_filename == PyVerilatorBSV.default_vcd_filename:
             self.stop_vcd_trace()
 
-    def flush_vcd_trace(self):
-        """Flush the vcd trace to disc.
-
-        If a gtkwave window is open, this also updates the window. If the window previously showed
-        the most recent data, then the window is scrolled as necessary to show the newest data."""
-        super().flush_vcd_trace()
+    def reload_dump_file(self):
         if self.gtkwave_active:
             # this gets the max time before and after the dump file is reloaded to see if it changed
             old_max_time = float(self.bluetcl.eval('GtkWaveSupport::send_to_gtkwave "gtkwave::getMaxTime" value\nexpr $value'))

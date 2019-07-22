@@ -10,12 +10,12 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='BluespecREPL',
-    version='0.1.0',
+    version='0.3.0',
     description='Python-based REPL interface for simulating and debugging Bluespec System Verilog',
     # long_description=long_description,
-    url='https://github.mit.edu/acwright/bluespec-repl',
-    author='Andy Wright',
-    author_email='acwright@mit.edu',
+    url='https://github.com/csail-csg/bluespecrepl',
+    author='CSAIL CSG',
+    author_email='acwright@mit.edu, bthom@mit.edu',
     # https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -31,15 +31,17 @@ setup(
     packages=find_packages(exclude=['examples', 'tests', 'util']),
     include_package_data=True,
     install_requires=[
-        'pyverilator>=0.1.1',
+        'pyverilator>=0.4.0',
         'tclwrapper',
         'pyverilog', #pyverilog (1.1.1)
     ],
+    setup_requires=['pytest-runner'],
+    tests_require=['pytest'],
     entry_points={
         # If we ever want to add an executable script, this is where it goes
     },
     project_urls={
-        'Bug Reports': 'https://github.mit.edu/acwright/bluespec-repl/issues',
-        'Source': 'https://github.mit.edu/acwright/bluespec-repl',
+        'Bug Reports': 'https://github.com/csail-csg/bluespecrepl/issues',
+        'Source': 'https://github.com/csail-csg/bluespecrepl',
     },
 )

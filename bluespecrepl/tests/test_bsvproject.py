@@ -17,6 +17,7 @@ class TestBSVProject(unittest.TestCase):
     def test_bsvproject_init(self):
         with open('Test.bsv', 'w') as f:
             f.write('''
+                (* synthesize *)
                 module mkTest(Empty);
                 endmodule
                 ''')
@@ -52,6 +53,7 @@ class TestBSVProject(unittest.TestCase):
     def test_bsvproject_one_rule(self):
         with open('Test.bsv', 'w') as f:
             f.write('''
+                (* synthesize *)
                 module mkTest(Empty);
                     rule oneRule;
                         $display("Hello, World!");
@@ -77,6 +79,7 @@ class TestBSVProject(unittest.TestCase):
     def test_bsvproject_two_rules(self):
         with open('Test.bsv', 'w') as f:
             f.write('''
+                (* synthesize *)
                 module mkTest(Empty);
                     rule ruleOne;
                         $display("Hello,");

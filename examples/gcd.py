@@ -24,13 +24,15 @@ module mkGCD(GCD);
     Reg#(Bit#(32)) x <- mkReg(0);
     Reg#(Bit#(32)) y <- mkReg(0);
 
+    let x_minus_y = x - y;
+
     rule swap((state == Busy) && (y > x) && (x != 0));
         x <= y;
         y <= x;
     endrule
 
     rule subtract((state == Busy) && (x >= y) && (x != 0));
-        x <= x - y;
+        x <= x_minus_y;
     endrule
 
     rule finish((state == Busy) && (x == 0));
@@ -69,10 +71,10 @@ proj.export_bspec_project_file('gcd.bspec')
 # 2) adds scheduling control to the module using verilogmutator.py and pyverilog
 # 3) creates verilator c++ simulation code and compiles it using pyverilator
 # 4) creates a python object (sim) with a bluespec-like interface to the verilator simulation
-sim = proj.gen_python_repl(scheduling_control = True)
+sim = proj.gen_python_repl(scheduling_control = True) # type: pyverilatorbsv.PyVerilatorBSV
 
-# set auto_eval, so if a signal is changed, run the eval() function
-sim.auto_eval = True
+# proj.populate_packages_and_modules()
+print("\nmkGCD's interface:\n" + proj.modules['mkGCD'].interface.bsv_decl() + '\n')
 
 # tells the verilator simulation to start dumping signal states to the given vcd file
 sim.start_vcd_trace('gcd.vcd')
@@ -94,7 +96,7 @@ sim.interface.start(105, 45)
 # this could also be done by calling sum.interface.result.is_ready()
 while not sim.interface.result_ready():
     # display the current values of the x and y registers
-    print('(x, y) = (%d, %d)' % (sim.internal.x.get_value(), sim.internal.y.get_value()))
+    #print('(x, y) = (%d, %d)' % (sim.internal.x.get_value(), sim.internal.y.get_value()))
     # advance to the next clock cycle
     sim.step(1)
 
@@ -112,13 +114,14 @@ sim.step(1)
 
 # start gtkwave, since we currently have vcd tracing enabled, gtkwave will open the existing trace
 sim.start_gtkwave()
-# send some signals and registers to gtkwave
-sim.send_signal_to_gtkwave('CLK')
-sim.send_reg_to_gtkwave('x')
-sim.send_reg_to_gtkwave('y')
-# state is an enumeration in bluespec
-# when it is sent to gtkwave, it will display the enumeration value names
-sim.send_reg_to_gtkwave('state')
+
+# send some things to gtkwave to view
+sim.clock.send_to_gtkwave()
+sim.interface.start.send_to_gtkwave()
+sim.bsv_internals.x.send_to_gtkwave()
+sim.bsv_internals.y.send_to_gtkwave()
+sim.bsv_internals.state.send_to_gtkwave()
+sim.interface.result.send_to_gtkwave()
 
 # wait until the user presses enter
 input('\nPress enter to quit...')

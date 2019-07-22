@@ -9,6 +9,18 @@ This is currently a work in progress.
 Installing the bluespecrepl Package
 -----------------------------------
 
+Requirements
+^^^^^^^^^^^^
+
+``bluespecrepl`` uses pip for all the python requirements, but has some
+additional non-python requirements:
+
+- ``verilator`` - used for quick verilog simulation.
+- ``gtkwave`` - used as a waveform viewer.
+- ``iverilog`` - used by ``pyverilog`` to preprocess verilog files.
+
+All of these can be installed in Ubuntu using ``apt get install``.
+
 Installing for Development
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 

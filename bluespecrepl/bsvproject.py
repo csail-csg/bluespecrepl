@@ -139,6 +139,11 @@ class BSVProject:
             extra_bsc_args.append('-no-opt-ATS')
         self.compile_verilog(extra_bsc_args = extra_bsc_args)
 
+        # now get interface information
+        self.populate_packages_and_modules()
+
+        interface = [method.to_dict() for method in self.modules[self.top_module].interface.methods]
+
         # copy verilog files to verilator dir
         verilator_verilog_files = {} # map from module name to verilog file
         if not os.path.exists(verilator_dir):
@@ -202,6 +207,7 @@ class BSVProject:
                 verilog_file,
                 verilog_path = [verilator_dir] + self.v_path,
                 build_dir = verilator_dir,
+                interface = interface,
                 rules = rules,
                 bsc_build_dir = self.build_dir)
 
@@ -308,15 +314,16 @@ class BSVProject:
         params['COMP_RTS_OPTIONS'] = ' '.join(self.rts_options)
         return params
 
-    def populate_packages_and_modules(self):
+    def populate_packages_and_modules(self, force = False):
         """Populates self.packages and self.modules members using information from bluetcl.
 
         self.packages is a dictionary mapping package names to BluespecPackage objects.
-        self.modules is a dictionary mapping module names to BluespecModule objects."""
-        if self.packages is not None:
-            raise Exception('packages already populated')
-        if self.modules is not None:
-            raise Exception('modules already populated')
+        self.modules is a dictionary mapping module names to BluespecModule objects.
+        If self.packages and self.modules have already been filled, this function does
+        nothing unless force is True."""
+        if not force and self.packages is not None and self.modules is not None:
+            # nothing to do
+            return
         if not os.path.isfile(os.path.join(self.build_dir, self.top_module + '.ba')):
             raise Exception("top file not elaborated: either you forgot to build the design or the top module doesn't have a (* synthesize *) attribute")
         with tclwrapper.TCLWrapper('bluetcl') as bluetcl:
@@ -326,12 +333,14 @@ class BSVProject:
             # list all packages
             packages = bluetcl.eval('Bluetcl::bpackage list', to_list = True)
 
-            self.packages = { pkg_name : BluespecPackage(pkg_name, bluetcl) for pkg_name in packages}
-            self.modules = {}
-            for package_name in self.packages:
-                for module in self.packages[package_name].modules:
-                    if module not in self.modules:
-                        self.modules[module] = BluespecModule(module, bluetcl)
+            if force or self.packages is None:
+                self.packages = { pkg_name : BluespecPackage(pkg_name, bluetcl) for pkg_name in packages}
+            if force or self.modules is None:
+                self.modules = {}
+                for package_name in self.packages:
+                    for module in self.packages[package_name].modules:
+                        if module not in self.modules:
+                            self.modules[module] = BluespecModule(module, bluetcl)
 
     # Advanced Functions
     #####################
@@ -576,9 +585,18 @@ class BluespecPackage:
         self.name = name
         def remove_package_name(n):
             return n.split('::')[-1]
-        self.types = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs type %s' % name))))
+        self.type_names = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs type %s' % name))))
+        self.types = {}
+        for type_name in self.type_names:
+            try:
+                self.types[type_name] = bluetcl.eval('Bluetcl::type full [Bluetcl::type constr %s]' % type_name)
+            except tclwrapper.TCLWrapperError as e:
+                # only raise the exception further if its not from Prelude
+                # Prelude causes this exception for ActionValue, Action, and List_$Cons
+                if name != 'Prelude':
+                    raise e
         self.modules = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs module %s' % name))))
-        self.func = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs func %s' % name))))
+        self.func = tclstring_to_list(bluetcl.eval('Bluetcl::defs func %s' % name))
 
 class BluespecModule:
     def __init__(self, name, bluetcl):
@@ -629,15 +647,136 @@ class BluespecModule:
             method_calls = tclstring_to_flat_list(methods_tclstring)
             self.method_calls_by_rule[rule] = method_calls
 
-        # sanity check
-        conflict = False
-        for i in range(len(self.execution)):
-            rule = self.execution[i]
-            conflicting_rules = self.urgency[rule]
-            for conflicting_rule in conflicting_rules:
-                if conflicting_rule not in self.execution[:i]:
-                    # I'm not sure why this happens sometimes, but I'm just allowing it for now
-                    # raise Exception("a rule is blocked by a rule that is later in execution order")
-                    conflict = True
-        if conflict:
-            print('module {} has an urgency and conflicts with the execution order'.format(self.name))
+        # returns an interface name with the package name as a prefix (ex: GCD::GCD)
+        self.interface = BluespecInterface(self.name, bluetcl)
+        self.interface_name = bluetcl.eval('Bluetcl::module ifc %s' % self.name)
+        self.interface_methods = bluetcl.eval('Bluetcl::module methods %s' % self.name)
+        self.ports = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module ports %s' % self.name))
+        self.port_types = bluetcl.eval('Bluetcl::module porttypes %s' % self.name)
+
+class BluetclAssumptionError(Exception):
+    """Raised when an assumption about the data coming back from Bluetcl was violated."""
+    pass
+
+class BluespecInterfaceMethod:
+    def __init__(self, name, ready, enable, args, result):
+        # bluespec name
+        self.name = name
+        # verilog name
+        self.ready = ready
+        # verilog name
+        self.enable = enable
+        # list of (bluespec_name, verilog_name, type) tuples
+        self.args = args
+        # (verilog name, type)
+        self.result = result
+
+    def bsv_decl(self):
+        # for now we're making assumptions about what methods are action methods
+        # TODO: in the future, use type information from "Bluetcl::type full" to get the actual return type
+        is_action = self.enable != None
+        if self.result is None:
+            # just assume its an action method, because a void method doesn't make sense
+            return_type = 'Action'
+        else:
+            if is_action:
+                return_type = 'ActionValue#({})'.format(self.result[1])
+            else:
+                return_type = self.result[1]
+        arg_decls = [ arg_type + ' ' + bluespec_name for bluespec_name, _, arg_type in self.args]
+        decl = '{} {}({})'.format(return_type, self.name, ', '.join(arg_decls))
+        return decl
+
+    def to_dict(self):
+        return {
+            'name' : self.name,
+            'ready' : self.ready,
+            'enable' : self.enable,
+            'args' : self.args,
+            'result' : self.result }
+
+# This is actually for an interface instance
+class BluespecInterface:
+    def __init__(self, module_name, bluetcl):
+        name = bluetcl.eval('Bluetcl::module ifc %s' % module_name)
+        if '::' in name:
+            self.interface_type_package = name.split('::')[0]
+            self.interface_type_name = name.split('::')[1]
+        else:
+            # This is for the Empty Interface
+            self.interface_type_package = None
+            self.interface_type_name = name
+
+        # porttypes and ports will hold data directly from bluetcl
+
+        # porttypes example: (('CLK', 'Clock'), ('RST_N', 'Reset'), ('start_a', 'Bit#(32)'), ...)
+        self.porttypes = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module porttypes %s' % module_name))
+
+        # ports example: (('interface', (<method>, <method>, ...)), ('args', (('clock', 'default_clock', ('ocs', 'CLK')), ('reset', 'default_reset', ('port', 'RST_N'), ('clock', 'default_clock'))))
+        # <method> example: (('method', 'start', 'start', ('clock', 'default_clock'), ('reset', 'default_reset'), ('args', (<arg>, <arg>)), ('enable', 'EN_start'), ('ready', 'RDY_start')))
+        # <arg> example: (('name', 'start_a'), ('port', 'start_a'), ('size', '32'))
+        self.raw_ports = bluetcl.eval('Bluetcl::module ports %s' % module_name)
+        self.ports = tclstring_to_nested_list(self.raw_ports)
+        # self.ports = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module ports %s' % module_name))
+
+        # function to access data in ports in a dictionary-like manner
+        def get_item(nested_list, item_name, none_ok = False):
+            ret = None
+            for item in nested_list:
+                if item[0] == item_name:
+                    if ret is not None:
+                        raise BluetclAssumptionError('"{}" appears more than once in list'.format(item_name))
+                    if len(item) == 2:
+                        ret = item[1]
+                    else:
+                        ret = item[1:]
+            if ret is None and not none_ok:
+                raise BluetclAssumptionError('"{}" does not appear in list'.format(item_name))
+            return ret
+
+        self.methods = []
+        raw_methods = get_item(self.ports, 'interface')
+        for raw_method in raw_methods:
+            if raw_method[0] != 'method':
+                raise BluetclAssumptionError('An item other than "method" appears in "interface"')
+            if raw_method[1] != raw_method[2]:
+                # I'm not sure the difference between these two. I'm assuming they are always the same
+                # and they correspond to the method's name
+                raise BluetclAssumptionError('First two elements in "method" item do not match')
+            method_name = raw_method[1]
+            ready = get_item(raw_method[3:], 'ready', none_ok = True)
+            enable = get_item(raw_method[3:], 'enable', none_ok = True)
+            raw_args = get_item(raw_method[3:], 'args')
+            # if there are no args, raw_args will be ""
+            # if there is one arg, raw_args will return a tclstring due to a problem in tclstring_to_nested_list
+            # this code tries to fix it
+            if isinstance(raw_args, str):
+                if raw_args == '':
+                    raw_args = []
+                else:
+                    raw_args = [tclstring_to_nested_list(raw_args)]
+
+            args = []
+            result_name = get_item(raw_method[3:], 'result', none_ok = True)
+            if result_name is None:
+                result = None
+            else:
+                result = (result_name, get_item(self.porttypes, result_name))
+            # if there are no arguments, raw_method_args = '', which still works with this for loop
+            for raw_arg in raw_args:
+                arg_name = get_item(raw_arg, 'name')
+                arg_port = get_item(raw_arg, 'port')
+                arg_type = get_item(self.porttypes, arg_port)
+                args.append((arg_name, arg_port, arg_type))
+                # arg_size = int(get_item(raw_arg, 'size'))
+            self.methods.append( BluespecInterfaceMethod(method_name, ready, enable, args, result) )
+
+        self.clocks = [ port_name for port_name, port_type in self.porttypes if port_type == 'Clock']
+        self.resets = [ port_name for port_name, port_type in self.porttypes if port_type == 'Reset']
+
+    def bsv_decl(self):
+        decl = 'interface {};\n'.format(self.interface_type_name)
+        for method in self.methods:
+            decl += '    {};\n'.format(method.bsv_decl())
+        decl += 'endinterface'
+        return decl
