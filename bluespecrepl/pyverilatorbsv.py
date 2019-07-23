@@ -46,8 +46,8 @@ class BSVInterfaceMethod:
         return ret
 
     def send_to_gtkwave(self):
-        if self.ready is not None:
-            self.sim.send_signal_to_gtkwave(self.ready)
+        if self.ready_signal is not None:
+            self.sim.send_signal_to_gtkwave(self.ready_signal)
         if self.enable is not None:
             self.sim.send_signal_to_gtkwave(self.enable)
         for _, sig, _ in self.args:
