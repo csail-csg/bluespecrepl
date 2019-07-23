@@ -10,16 +10,20 @@ class BSVInterfaceMethod:
         # args is list of (bsv_name, signal, type)
         # bsv_name is not really the name used in the BSV source code
         self.args = args
-        self.ready = ready
+        self.ready_signal = ready
         self.enable = enable
         # output is none or (signal, type)
         self.output = output
 
     def is_ready(self):
         if self.ready:
-            return bool(self.ready.value)
+            return bool(self.ready_signal.value)
         else:
             return True
+
+    @property
+    def ready(self):
+        return self.ready_signal.collection_get()
 
     def __call__(self, *call_args):
         if not self.is_ready():
@@ -192,6 +196,9 @@ class BSVSignal:
     def __repr__(self):
         return 'signal ' + self.short_name + ' = ' + hex(self.sim[self.full_name])
 
+class Subinterface(pyverilator.Collection):
+    pass
+
 class PyVerilatorBSV(pyverilator.PyVerilator):
     """PyVerilator instance with BSV-specific features."""
 
@@ -234,7 +241,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
         # interface_json is a list of methods which are
         # dictionaries containing name, ready, enable, args, result
         methods = {}
-        for interface in interface_json:
+        for hierarchy, interface in interface_json:
             name = interface['name']
             ready = get_signal(interface['ready'])
             enable = get_signal(interface['enable'])
@@ -243,8 +250,8 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
             if result is not None:
                 verilog_name, type_name = result
                 result = (self.io[verilog_name].signal, type_name)
-            methods[name] = BSVInterfaceMethod(self, name, args, ready, enable, result)
-        self.interface = pyverilator.Collection(methods)
+            methods[tuple(hierarchy)] = BSVInterfaceMethod(self, name, args, ready, enable, result)
+        self.interface = pyverilator.Collection.build_nested_collection(methods, nested_class = Subinterface)
 
     def _populate_rules(self):
         # self.rule_names has the names of all the rules in the order they

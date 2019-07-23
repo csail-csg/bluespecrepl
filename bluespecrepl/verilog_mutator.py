@@ -198,7 +198,6 @@ class VerilogMutator:
                 total_num_bits += 1
             elif name.startswith('MODULE_'):
                 instance_name = name[len('MODULE_'):]
-                instance = self.get_instance(instance_name)
                 module_name = instance_to_module[instance_name]
                 if num_rules_per_module is None:
                     continue
@@ -236,7 +235,6 @@ class VerilogMutator:
                 will_fires.append(ast.Identifier('WILL_FIRE_' + name))
             elif name.startswith('MODULE_'):
                 instance_name = name[len('MODULE_'):]
-                instance = self.get_instance(instance_name)
                 module_name = instance_to_module[instance_name]
                 if num_rules_per_module is None:
                     continue
@@ -245,6 +243,7 @@ class VerilogMutator:
                 num_submodule_rules = num_rules_per_module[module_name]
                 if num_submodule_rules == 0:
                     continue
+                instance = self.get_instance(instance_name)
                 for signal_type in ['CAN_FIRE', 'WILL_FIRE', 'BLOCK_FIRE', 'FORCE_FIRE']:
                     if signal_type == 'FORCE_FIRE' and not add_force_fire:
                         continue

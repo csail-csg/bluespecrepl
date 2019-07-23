@@ -142,7 +142,7 @@ class BSVProject:
         # now get interface information
         self.populate_packages_and_modules()
 
-        interface = [method.to_dict() for method in self.modules[self.top_module].interface.methods]
+        interface = [(hierarchy, method.to_dict()) for hierarchy, method in self.modules[self.top_module].interface.methods]
 
         # copy verilog files to verilator dir
         verilator_verilog_files = {} # map from module name to verilog file
@@ -589,11 +589,12 @@ class BluespecPackage:
         self.types = {}
         for type_name in self.type_names:
             try:
-                self.types[type_name] = bluetcl.eval('Bluetcl::type full [Bluetcl::type constr %s]' % type_name)
+                self.types[type_name] = bluetcl.eval('Bluetcl::type full [Bluetcl::type constr {%s}]' % type_name)
             except tclwrapper.TCLWrapperError as e:
-                # only raise the exception further if its not from Prelude
+                # only raise the exception further if its not from Prelude or StmtFSM
                 # Prelude causes this exception for ActionValue, Action, and List_$Cons
-                if name != 'Prelude':
+                # StmtFSM causes this exception for State' and NCount'
+                if name != 'Prelude' and name != 'StmtFSM':
                     raise e
         self.modules = list(map(remove_package_name, tclstring_to_list(bluetcl.eval('Bluetcl::defs module %s' % name))))
         self.func = tclstring_to_list(bluetcl.eval('Bluetcl::defs func %s' % name))
@@ -734,49 +735,68 @@ class BluespecInterface:
                 raise BluetclAssumptionError('"{}" does not appear in list'.format(item_name))
             return ret
 
-        self.methods = []
+        def get_methods(raw_methods, prefix = ()):
+            methods = []
+            for raw_method in raw_methods:
+                if raw_method[0] == 'interface':
+                    # this is actually a subinterface or a value method returning a tuple
+                    subinterface_name = raw_method[1]
+                    if isinstance(raw_method[2], str):
+                        if raw_method[2] == '':
+                            continue
+                        else:
+                            methods.extend(get_methods([tclstring_to_nested_list(raw_method[2])], (*prefix, subinterface_name)))
+                    else:
+                        methods.extend(get_methods(raw_method[2], (*prefix, subinterface_name)))
+                elif raw_method[0] == 'method':
+                    short_method_name = raw_method[1]
+                    # underscore separates subinterfaces and method name
+                    full_method_name = raw_method[2]
+                    ready = get_item(raw_method[3:], 'ready', none_ok = True)
+                    enable = get_item(raw_method[3:], 'enable', none_ok = True)
+                    raw_args = get_item(raw_method[3:], 'args')
+                    # if there are no args, raw_args will be ""
+                    # if there is one arg, raw_args will return a tclstring due to a problem in tclstring_to_nested_list
+                    # this code tries to fix it
+                    if isinstance(raw_args, str):
+                        if raw_args == '':
+                            raw_args = []
+                        else:
+                            raw_args = [tclstring_to_nested_list(raw_args)]
+                    args = []
+                    result_name = get_item(raw_method[3:], 'result', none_ok = True)
+                    if result_name is None:
+                        result = None
+                    else:
+                        result = (result_name, get_item(self.porttypes, result_name))
+                    # if there are no arguments, raw_method_args = '', which still works with this for loop
+                    for raw_arg in raw_args:
+                        arg_name = get_item(raw_arg, 'name')
+                        arg_port = get_item(raw_arg, 'port')
+                        arg_type = get_item(self.porttypes, arg_port)
+                        args.append((arg_name, arg_port, arg_type))
+                        # arg_size = int(get_item(raw_arg, 'size'))
+                    methods.append( ((*prefix, short_method_name), BluespecInterfaceMethod(short_method_name, ready, enable, args, result)) )
+            return methods
+
         raw_methods = get_item(self.ports, 'interface')
-        for raw_method in raw_methods:
-            if raw_method[0] != 'method':
-                raise BluetclAssumptionError('An item other than "method" appears in "interface"')
-            if raw_method[1] != raw_method[2]:
-                # I'm not sure the difference between these two. I'm assuming they are always the same
-                # and they correspond to the method's name
-                raise BluetclAssumptionError('First two elements in "method" item do not match')
-            method_name = raw_method[1]
-            ready = get_item(raw_method[3:], 'ready', none_ok = True)
-            enable = get_item(raw_method[3:], 'enable', none_ok = True)
-            raw_args = get_item(raw_method[3:], 'args')
-            # if there are no args, raw_args will be ""
-            # if there is one arg, raw_args will return a tclstring due to a problem in tclstring_to_nested_list
-            # this code tries to fix it
-            if isinstance(raw_args, str):
-                if raw_args == '':
-                    raw_args = []
-                else:
-                    raw_args = [tclstring_to_nested_list(raw_args)]
-
-            args = []
-            result_name = get_item(raw_method[3:], 'result', none_ok = True)
-            if result_name is None:
-                result = None
-            else:
-                result = (result_name, get_item(self.porttypes, result_name))
-            # if there are no arguments, raw_method_args = '', which still works with this for loop
-            for raw_arg in raw_args:
-                arg_name = get_item(raw_arg, 'name')
-                arg_port = get_item(raw_arg, 'port')
-                arg_type = get_item(self.porttypes, arg_port)
-                args.append((arg_name, arg_port, arg_type))
-                # arg_size = int(get_item(raw_arg, 'size'))
-            self.methods.append( BluespecInterfaceMethod(method_name, ready, enable, args, result) )
-
+        self.methods = get_methods(raw_methods, ())
         self.clocks = [ port_name for port_name, port_type in self.porttypes if port_type == 'Clock']
         self.resets = [ port_name for port_name, port_type in self.porttypes if port_type == 'Reset']
 
     def bsv_decl(self):
         decl = 'interface {};\n'.format(self.interface_type_name)
-        for method in self.methods:
-            decl += '    {};\n'.format(method.bsv_decl())
+        curr_hierarchy = ()
+        for full_name, method in self.methods:
+            method_hierarchy = full_name[:-1]
+            while method_hierarchy[:len(curr_hierarchy)] != curr_hierarchy:
+                # remove a level of the current hierarchy until the two share a common prefix
+                curr_hierarchy = curr_hierarchy[:-1]
+                decl += '    ' * (len(curr_hierarchy)+1) + 'endinterface\n'
+            while len(curr_hierarchy) < len(method_hierarchy):
+                # add a level to the current hierarchy until curr_hierarchy == method_hierarchy
+                decl += '    ' * (len(curr_hierarchy)+1) + 'interface {};\n'.format(method_hierarchy[len(curr_hierarchy)])
+                curr_hierarchy = (*curr_hierarchy, method_hierarchy[len(curr_hierarchy)])
+            decl += '    ' * (len(curr_hierarchy)+1) + '{};\n'.format(method.bsv_decl())
         decl += 'endinterface'
         return decl
