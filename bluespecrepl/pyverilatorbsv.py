@@ -16,14 +16,17 @@ class BSVInterfaceMethod:
         self.output = output
 
     def is_ready(self):
-        if self.ready:
+        if self.ready_signal is not None:
             return bool(self.ready_signal.value)
         else:
             return True
 
     @property
     def ready(self):
-        return self.ready_signal.collection_get()
+        if self.ready_signal is not None:
+            return self.ready_signal.collection_get()
+        else:
+            return True
 
     def __call__(self, *call_args):
         if not self.is_ready():

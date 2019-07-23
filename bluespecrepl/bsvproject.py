@@ -768,12 +768,17 @@ class BluespecInterface:
                     if result_name is None:
                         result = None
                     else:
-                        result = (result_name, get_item(self.porttypes, result_name))
+                        result_type = get_item(self.porttypes, result_name)
+                        if isinstance(result_type, tuple) or isinstance(result_type, list):
+                            result_type = ''.join(result_type)
+                        result = (result_name, result_type)
                     # if there are no arguments, raw_method_args = '', which still works with this for loop
                     for raw_arg in raw_args:
                         arg_name = get_item(raw_arg, 'name')
                         arg_port = get_item(raw_arg, 'port')
                         arg_type = get_item(self.porttypes, arg_port)
+                        if isinstance(arg_type, tuple) or isinstance(arg_type, list):
+                            arg_type = ''.join(arg_type)
                         args.append((arg_name, arg_port, arg_type))
                         # arg_size = int(get_item(raw_arg, 'size'))
                     methods.append( ((*prefix, short_method_name), BluespecInterfaceMethod(short_method_name, ready, enable, args, result)) )
