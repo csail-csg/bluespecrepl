@@ -282,7 +282,7 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
 
         with bluetcl.BlueTCL() as tcl:
             # [(bsv_name, bsv_path, synth_name, synth_path)]
-            bluetcl_rule_names = tclstring_to_nested_list(tcl.eval('''
+            bluetcl_rule_names = tcl.eval('''
                 package require Virtual
                 Bluetcl::flags set -verilog -p %s:+
                 Bluetcl::module load %s
@@ -297,30 +297,10 @@ class PyVerilatorBSV(pyverilator.PyVerilator):
                     lappend out $x
                 }
                 return -level 0 $out
-                ''' % (self.bsc_build_dir, self.module_name)))
-            rule_signal_names = tclstring_to_nested_list(tcl.eval('''
-                set signals [Virtual::signal filter *]
-                set out {}
-                foreach sig $signals {
-                    if {[$sig kind] != "Signal"} {
-                        set x {}
-                        lappend x [$sig name]
-                        lappend x [$sig path bsv]
-                        lappend x [$sig path synth]
-                        lappend out $x
-                    }
-                }
-                return -level 0 $out
-                '''))
-        # if there is only zero or one rule, bluetcl_rule_names needs to be fixed up
-        if isinstance(bluetcl_rule_names, str):
-            if bluetcl_rule_names == '':
-                bluetcl_rule_names = []
-            else:
-                bluetcl_rule_names = [bluetcl_rule_names.split()]
+                ''' % (self.bsc_build_dir, self.module_name))
         # we can get all the bsv name information from bsv_path, so
         # we don't need to use bsv_name from bluetcl_rule_names
-        for _, bsv_path, synth_name, synth_path in bluetcl_rule_names:
+        for _, bsv_path, synth_name, synth_path in tclstring_to_nested_list(bluetcl_rule_names, levels=2):
             # remove leading '/' and replace others with '__DOT__'
             verilog_name = synth_path[1:].replace('/', '__DOT__')
             if verilog_name != "":

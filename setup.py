@@ -32,7 +32,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'pyverilator>=0.4.0',
-        'tclwrapper',
+        'tclwrapper>=0.1.0',
         'pyverilog', #pyverilog (1.1.1)
     ],
     setup_requires=['pytest-runner'],

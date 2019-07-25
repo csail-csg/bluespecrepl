@@ -364,13 +364,8 @@ class BSVProject:
                     uniq_modules.append(mod)
             for module in uniq_modules:
                 bluetcl.eval('Bluetcl::module load %s' % module)
-                user_or_prim, submodules, functions = tclstring_to_nested_list(bluetcl.eval('Bluetcl::module submods %s' % module))
-                # If there is only one submodule, "Bluetcl::module submods <mod>" doesn't return a list of lists
-                if isinstance(submodules, str):
-                    if submodules == '':
-                        submodules = tuple()
-                    else:
-                        submodules = (tuple(submodules.split(' ')),)
+                user_or_prim, submodules, functions = tclstring_to_list(bluetcl.eval('Bluetcl::module submods %s' % module))
+                submodules = tclstring_to_nested_list(submodules, levels = 2)
                 if user_or_prim == 'user':
                     submodule_dict[module] = submodules
         return submodule_dict
@@ -403,7 +398,7 @@ class BSVProject:
                     # assume its always the 3rd element
                     if not rule_info[3].startswith('methods'):
                         raise Exception('method is expected to be the 3rd element from "Bluetcl::rule full <mod> <rule>"')
-                    methods_tclstring = str(rule_info[3][len('methods '):])
+                    methods_tclstring = tclstring_to_list(rule_info[3])
                     method_calls = tclstring_to_flat_list(methods_tclstring)
                     rule_method_call_dict[module].append((rule, method_calls))
         return rule_method_call_dict
