@@ -4,6 +4,63 @@ from pyverilog.vparser.parser import parse
 import pyverilog.vparser.ast as ast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator, ConvertVisitor
 
+def add_scheduling_signals(bsc_vdir, out_dir):
+    """
+    Stand-alone function for adding scheduling signals to a directory of bsc-generated Verilog.
+
+    Results are written to the out_dir folder.
+    """
+    if not os.path.isdir(bsc_vdir):
+        raise Exception('bsc_vdir must be a directory')
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    base_verilog_filenames = { filename[:-len('.v')] : filename for filename in os.listdir(bsc_vdir) if os.path.isfile(os.path.join(bsc_vdir, filename)) and filename.endswith('.v') }
+    input_verilog_filenames = { module : os.path.join(bsc_vdir, filename) for module, filename in base_verilog_filenames.items() }
+    output_verilog_filenames = { module : os.path.join(out_dir, filename) for module, filename in base_verilog_filenames.items() }
+    mutators = { module : VerilogMutator(verilog_filename) for module, verilog_filename in input_verilog_filenames.items() }
+    submodules = { module : mutator.get_submodules() for module, mutator in mutators.items() }
+    modules_to_mutate = list(base_verilog_filenames.keys())
+    num_rules_per_module = {}
+    rule_names_per_module = {}
+    while len(modules_to_mutate) != 0:
+        module_to_mutate = None
+        for module in modules_to_mutate:
+            good_candidate = True
+            for instance_name, instance_module in submodules[module]:
+                if instance_module in modules_to_mutate:
+                    good_candidate = False
+            if good_candidate:
+                module_to_mutate = module
+                break
+        if module_to_mutate is not None:
+            mutator = mutators[module_to_mutate]
+            num_rules = mutator.expose_internal_scheduling_signals(num_rules_per_module = num_rules_per_module)
+            mutator.write_verilog(output_verilog_filenames[module])
+            rules = mutator.get_rules_in_scheduling_order()
+            num_rules_per_module[module_to_mutate] = num_rules
+            # get list of rule names
+            full_module_rule_names = []
+            for sched_item in mutator.get_default_scheduling_order():
+                if sched_item.startswith('RL_'):
+                    full_module_rule_names.append(sched_item)
+                elif sched_item.startswith('MODULE_'):
+                    submodule_instance_name = sched_item[len('MODULE_'):]
+                    submodule_type = [y for x, y in submodules[module_to_mutate] if x == submodule_instance_name][0]
+                    if submodule_type not in rule_names_per_module:
+                        # this submodule has no known rules
+                        continue
+                    submodule_rule_names = [submodule_instance_name + '__DOT__' + x for x in rule_names_per_module[submodule_type]]
+                    full_module_rule_names += submodule_rule_names
+                else:
+                    raise Exception('Unsupported scheuling item type')
+            rule_names_per_module[module_to_mutate] = full_module_rule_names
+            rule_order = mutator.get_default_scheduling_order()
+            modules_to_mutate.remove(module_to_mutate)
+        else:
+            raise Exception("Adding scheduling control failed. Can't find next module to mutate")
+    # get rule names
+    return rule_names_per_module
+
 class CustomizedASTCodeGenerator(ASTCodeGenerator):
     '''Same as ASTCodeGenerator except for adding newlines between signal
     declarations that came from the same source declaration statement.'''

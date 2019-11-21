@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='BluespecREPL',
-    version='0.3.1',
+    version='0.4.0',
     description='Python-based REPL interface for simulating and debugging Bluespec System Verilog',
     # long_description=long_description,
     url='https://github.com/csail-csg/bluespecrepl',
